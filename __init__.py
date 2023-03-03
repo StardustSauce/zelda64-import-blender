@@ -87,6 +87,7 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
                              description="Legacy option, shouldn't be useful",
                              default='AUTO',)
     useVertexAlpha: BoolProperty(name="Use vertex alpha",
+                                 # TODO: Does it?
                                  description="Only enable if your version of blender has native support",
                                  default=(bpy.app.version == (2,79,7) and bpy.app.build_hash in {b'10f724cec5e3', b'e045fe53f1b0'}),)
     enableMatrices: BoolProperty(name="Matrices",
@@ -100,15 +101,15 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
                                     description='Consider that unimplemented opcodes are invalid when detecting display lists.\n'
                                                 'The reasoning is that unimplemented opcodes are very rare or never actually used.',
                                     default=True,)
-    enablePrimColor: BoolProperty(name="Prim Color",
+    enablePrimColor: BoolProperty(name="Use Prim Color",
                                   description="Enable blending with primitive color",
                                   default=False,) # this may be nice for strictly importing but exporting again will then not be exact
-    enableEnvColor: BoolProperty(name="Env Color",
+    enableEnvColor: BoolProperty(name="Use Env Color",
                                  description="Enable blending with environment color",
                                  default=False,) # same as primColor above
     invertEnvColor: BoolProperty(name="Invert Env Color",
                                  description="Invert environment color (temporary fix)",
-                                 default=False,) # todo what is this?
+                                 default=False,) # TODO: what is this?
     exportTextures: BoolProperty(name="Export Textures",
                                  description="Export textures for the model",
                                  default=True,)
@@ -133,7 +134,7 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
     enableToon: BoolProperty(name="Toony UVs",
                              description="Obtain a toony effect by not scaling down the uv coords",
                              default=False,)
-    originalObjectScale: IntProperty(name="File Scale",
+    originalObjectScale: IntProperty(name="File Scale", # TODO: Ground this in a Unit system
                              description="Scale of imported object, blender model will be scaled 1/(file scale) (use 1 for maps, actors are usually 100, 10 or 1) (0 defaults to 1 for maps and 100 for actors)",
                              default=0, min=0, soft_max=1000)
     loadAnimations: BoolProperty(name="Load animations",
@@ -348,33 +349,99 @@ class ZOBJ_PT_import_config(bpy.types.Panel):
         layout.prop(operator, 'useVertexAlpha')
         layout.prop(operator, "loadOtherSegments")
         layout.prop(operator, "originalObjectScale")
-        box = layout.box()
-        box.prop(operator, "enableTexClampBlender")
-        box.prop(operator, "replicateTexMirrorBlender")
-        if operator.replicateTexMirrorBlender:
-            wBox = box.box()
-            wBox.label(text='Enabling texture mirroring', icon='ERROR')
-            wBox.label(text='will break exporting with', icon='ERROR')
-            wBox.label(text='SharpOcarina, and may break', icon='ERROR')
-            wBox.label(text='exporting in general with', icon='ERROR')
-            wBox.label(text='other tools.', icon='ERROR')
-        box.prop(operator, "enableTexClampSharpOcarinaTags")
-        box.prop(operator, "enableTexMirrorSharpOcarinaTags")
         layout.prop(operator, "enableMatrices")
+        layout.prop(operator, "enableShadelessMaterials")
+        layout.prop(operator, "enableToon")
+        layout.prop(operator, "prefixMultiImport")
+        layout.prop(operator, "setView3dParameters")
+
+class ZOBJ_PT_import_texture(bpy.types.Panel):
+    bl_space_type = 'FILE_BROWSER'
+    bl_region_type = 'TOOL_PROPS'
+    bl_label = "Textures"
+    bl_parent_id = "FILE_PT_operator"
+
+    @classmethod
+    def poll(cls, context):
+        sfile = context.space_data
+        operator = sfile.active_operator
+
+        return operator.bl_idname == "IMPORT_SCENE_OT_zobj"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False  # No animation.
+
+        sfile = context.space_data
+        operator = sfile.active_operator
+
+        layout.prop(operator, "enableTexClampBlender")
+        layout.prop(operator, "replicateTexMirrorBlender")
+        if operator.replicateTexMirrorBlender:
+            wBox = layout.box()
+            wBox.label(text='Enabling texture mirroring', icon='ERROR')
+            wBox.label(text='will break exporting with', icon='BLANK1')
+            wBox.label(text='SharpOcarina, and may break', icon='BLANK1')
+            wBox.label(text='exporting in general with', icon='BLANK1')
+            wBox.label(text='other tools.', icon='BLANK1')
+        layout.prop(operator, "enableTexClampSharpOcarinaTags")
+        layout.prop(operator, "enableTexMirrorSharpOcarinaTags")
+
+        layout.separator()
+
         layout.prop(operator, "enablePrimColor")
         layout.prop(operator, "enableEnvColor")
         layout.prop(operator, "invertEnvColor")
         layout.prop(operator, "exportTextures")
         layout.prop(operator, "importTextures")
-        layout.prop(operator, "enableShadelessMaterials")
-        layout.prop(operator, "enableToon")
-        layout.separator()
+
+class ZOBJ_PT_import_animation(bpy.types.Panel):
+    bl_space_type = 'FILE_BROWSER'
+    bl_region_type = 'TOOL_PROPS'
+    bl_label = "Animations"
+    bl_parent_id = "FILE_PT_operator"
+
+    @classmethod
+    def poll(cls, context):
+        sfile = context.space_data
+        operator = sfile.active_operator
+
+        return operator.bl_idname == "IMPORT_SCENE_OT_zobj"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False  # No animation.
+
+        sfile = context.space_data
+        operator = sfile.active_operator
+
         layout.prop(operator, "loadAnimations")
         layout.prop(operator, "MajorasAnims")
-        layout.prop(operator, "ExternalAnimes")
-        layout.prop(operator, "prefixMultiImport")
-        layout.prop(operator, "setView3dParameters")
-        layout.separator()
+        layout.prop(operator, "ExternalAnimes") 
+
+class ZOBJ_PT_import_logging(bpy.types.Panel):
+    bl_space_type = 'FILE_BROWSER'
+    bl_region_type = 'TOOL_PROPS'
+    bl_label = "Logging"
+    bl_parent_id = "FILE_PT_operator"
+
+    @classmethod
+    def poll(cls, context):
+        sfile = context.space_data
+        operator = sfile.active_operator
+
+        return operator.bl_idname == "IMPORT_SCENE_OT_zobj"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False  # No animation.
+
+        sfile = context.space_data
+        operator = sfile.active_operator
+
         layout.prop(operator, "logging_level")
         layout.prop(operator, 'logging_logfile_enable')
         if operator.logging_logfile_enable:
@@ -383,7 +450,13 @@ class ZOBJ_PT_import_config(bpy.types.Panel):
 def menu_func_import(self, context):
     self.layout.operator(ImportZ64.bl_idname, text="Zelda64 (.zobj;.zroom;.zmap)")
 
-classes = [ImportZ64, ZOBJ_PT_import_config]
+classes = [
+    ImportZ64,
+    ZOBJ_PT_import_config,
+    ZOBJ_PT_import_texture,
+    ZOBJ_PT_import_animation,
+    ZOBJ_PT_import_logging
+]
 
 def register():
     registerLogging()

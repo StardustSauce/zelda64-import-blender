@@ -102,7 +102,7 @@ class Tile:
         )
 
     def create(self, segment, use_transparency, prefix=""):
-        # todo texture files are written several times, at each usage
+        # TODO: texture files are written several times, at each usage
         log = getLogger('Tile.create')
         fmtName = self.getFormatName()
         #Noka here
@@ -1218,12 +1218,12 @@ class F3DZEX:
         def mult4d(v1, v2):
             return Vector([v1[i] * v2[i] for i in range(4)])
         cc = Vector([1.0, 1.0, 1.0, 1.0])
-        # todo these have an effect even if vertexMode == 'NONE' ?
+        # TODO: these have an effect even if vertexMode == 'NONE' ?
         if enablePrimColor:
             cc = mult4d(cc, self.primColor)
         if enableEnvColor:
             cc = mult4d(cc, self.envColor)
-        # todo assume G_LIGHTING means normals if set, and colors if clear, but G_SHADE may play a role too?
+        # TODO: assume G_LIGHTING means normals if set, and colors if clear, but G_SHADE may play a role too?
         if vertexMode == 'COLORS' or (vertexMode == 'AUTO' and 'G_LIGHTING' not in self.geometryModeFlags):
             cc = mult4d(cc, self.vertexColor.to_4d())
         elif self.checkUseNormals():
@@ -1334,7 +1334,7 @@ class F3DZEX:
                     for j in range(3):
                         v = verts[j]
                         vi = verts_index[j]
-                        # todo is this computation of shadeColor correct?
+                        # TODO: is this computation of shadeColor correct?
                         sc = (((v.normal.x + v.normal.y + v.normal.z) / 3) + 1.0) / 2
                         if checkUseVertexAlpha():
                             self.vertexColor = Vector([v.color[0], v.color[1], v.color[2], v.color[3]])
@@ -1507,21 +1507,21 @@ class F3DZEX:
                 pass
             # G_GEOMETRYMODE
             elif data[i] == 0xD9:
-                # todo do not push mesh if geometry mode doesnt actually change?
+                # TODO: do not push mesh if geometry mode doesnt actually change?
                 #mesh.create(mesh_name_format, hierarchy, offset, self.checkUseNormals())
                 #mesh.__init__()
                 #offset = segmentMask | i
                 # https://wiki.cloudmodding.com/oot/F3DZEX#RSP_Geometry_Mode
-                # todo SharpOcarina tags
+                # TODO: SharpOcarina tags
                 geometryModeMasks = {
                     'G_ZBUFFER':            0b00000000000000000000000000000001,
                     'G_SHADE':              0b00000000000000000000000000000100, # used by 0x05/0x06 for mesh.faces_use_smooth
-                    'G_CULL_FRONT':         0b00000000000000000000001000000000, # todo set culling (not possible per-face or per-material or even per-object apparently) / SharpOcarina tags
-                    'G_CULL_BACK':          0b00000000000000000000010000000000, # todo same
+                    'G_CULL_FRONT':         0b00000000000000000000001000000000, # TODO: set culling (not possible per-face or per-material or even per-object apparently) / SharpOcarina tags
+                    'G_CULL_BACK':          0b00000000000000000000010000000000, # TODO: same
                     'G_FOG':                0b00000000000000010000000000000000,
                     'G_LIGHTING':           0b00000000000000100000000000000000,
-                    'G_TEXTURE_GEN':        0b00000000000001000000000000000000, # todo billboarding?
-                    'G_TEXTURE_GEN_LINEAR': 0b00000000000010000000000000000000, # todo billboarding?
+                    'G_TEXTURE_GEN':        0b00000000000001000000000000000000, # TODO: billboarding?
+                    'G_TEXTURE_GEN_LINEAR': 0b00000000000010000000000000000000, # TODO: billboarding?
                     'G_SHADING_SMOOTH':     0b00000000001000000000000000000000, # used by 0x05/0x06 for mesh.faces_use_smooth
                     'G_CLIPPING':           0b00000000100000000000000000000000,
                 }
@@ -1545,7 +1545,7 @@ class F3DZEX:
             # G_SETCOMBINE
             elif data[i] == 0xFC:
                 # https://wiki.cloudmodding.com/oot/F3DZEX/Opcode_Details#0xFC_.E2.80.94_G_SETCOMBINE
-                pass # todo
+                pass # TODO:
             else:
                 log.warning('Skipped (unimplemented) opcode 0x%02X' % data[i])
         log.warning('Reached end of dlist started at 0x%X', startOffset)
@@ -1602,7 +1602,7 @@ class F3DZEX:
         global AnimtoPlay
         global Animscount
         log = getLogger('F3DZEX.buildLinkAnimations')
-        # todo buildLinkAnimations hasn't been rewritten/improved like buildAnimations has
+        # TODO: buildLinkAnimations hasn't been rewritten/improved like buildAnimations has
         log.warning('The code to build link animations has not been improved/tested for a while, not sure what features it lacks compared to regular animations, pretty sure it will not import all animations')
         segment = []
         rot_indx = 0
@@ -1764,7 +1764,7 @@ class F3DZEX:
         frameTotal = unpack_from(">h", segment[AniSeg], (AnimationOffset))[0]
         rot_vals_addr = unpack_from(">L", segment[AniSeg], (AnimationOffset + 4))[0]
         RotIndexoffset = unpack_from(">L", segment[AniSeg], (AnimationOffset + 8))[0]
-        Limit = unpack_from(">H", segment[AniSeg], (AnimationOffset + 12))[0] # todo no idea what this is
+        Limit = unpack_from(">H", segment[AniSeg], (AnimationOffset + 12))[0] # TODO: no idea what this is
 
         rot_vals_addr  &= 0xFFFFFF
         RotIndexoffset &= 0xFFFFFF

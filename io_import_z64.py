@@ -33,7 +33,6 @@ bl_info = {
 
 import bpy, os, struct, time
 import mathutils
-import re
 
 from bpy import ops
 from bpy.props import *
@@ -1171,7 +1170,7 @@ class F3DZEX:
             for offsetStr in self.displaylists:
                 while offsetStr and offsetStr[-1] in ('\r','\n'):
                     offsetStr = offsetStr[:-1]
-                if re.match(r'^[0-9]+$', offsetStr):
+                if offsetStr.isdecimal():
                     log.warning('Reading offset %s as hexadecimal, NOT decimal', offsetStr)
                 if len(offsetStr) > 2 and offsetStr[:2] == '0x':
                     offsetStr = offsetStr[2:]
@@ -2328,6 +2327,3 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
 
 def menu_func_import(self, context):
     self.layout.operator(ImportZ64.bl_idname, text="Zelda64 (.zobj;.zroom;.zmap)")
-
-if __name__ == "__main__":
-    register()

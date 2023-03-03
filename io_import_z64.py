@@ -32,14 +32,11 @@ bl_info = {
 """Anim stuff: RodLima http://www.facebook.com/rod.lima.96?ref=tn_tnmn"""
 
 import bpy, os, struct, time
-import mathutils
 
-from bpy import ops
 from bpy.props import *
 from bpy_extras.image_utils import load_image
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from math import *
-from mathutils import *
 from struct import pack, unpack_from
 
 from mathutils import Vector, Euler, Matrix
@@ -1951,14 +1948,14 @@ class F3DZEX:
                 bpy.ops.pose.select_all(action="DESELECT")
 
         bone = armature.pose.bones["limb_00"]
-        bone.location += mathutils.Vector((newLocx,newLocz,-newLocy))
+        bone.location += Vector((newLocx,newLocz,-newLocy))
         bone.keyframe_insert(data_path='location')
 
         ### Could have done some math here but... just reverse previus frame, so it just repose.
         bpy.context.scene.tool_settings.use_keyframe_insert_auto = False
 
         bone = armature.pose.bones["limb_00"]
-        bone.location -= mathutils.Vector((newLocx,newLocz,-newLocy))
+        bone.location -= Vector((newLocx,newLocz,-newLocy))
 
         for i in range(BoneCountMax):
             bIndx = i

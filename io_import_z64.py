@@ -2329,17 +2329,5 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
 def menu_func_import(self, context):
     self.layout.operator(ImportZ64.bl_idname, text="Zelda64 (.zobj;.zroom;.zmap)")
 
-
-def register():
-    registerLogging()
-    bpy.utils.register_module(__name__)
-    bpy.types.INFO_MT_file_import.append(menu_func_import)
-
-def unregister():
-    bpy.utils.unregister_module(__name__)
-    bpy.types.INFO_MT_file_import.remove(menu_func_import)
-    unregisterLogging()
-
-
 if __name__ == "__main__":
     register()

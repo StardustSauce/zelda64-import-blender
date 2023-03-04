@@ -1,46 +1,12 @@
-# zelda64-import-blender
-# Import models from Zelda64 files into Blender
-# Copyright (C) 2013 SoulofDeity
-# Copyright (C) 2020 Dragorn421
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>
-
-bl_info = {
-    "name":        "Zelda64 Importer",
-    "version":     (2, 5),
-    "author":      "SoulofDeity",
-    "blender":     (2, 6, 0),
-    "location":    "File > Import-Export",
-    "description": "Import Zelda64 - updated in 2020",
-    "warning":     "",
-    "wiki_url":    "https://github.com/Dragorn421/zelda64-import-blender",
-    "tracker_url": "https://github.com/Dragorn421/zelda64-import-blender",
-    "support":     'COMMUNITY',
-    "category":    "Import-Export"}
-
-"""Anim stuff: RodLima http://www.facebook.com/rod.lima.96?ref=tn_tnmn"""
-
 import bpy, os, struct, time
 
 from bpy.props import *
 from bpy_extras.image_utils import load_image
-from bpy_extras.io_utils import ExportHelper, ImportHelper
 from math import *
 from struct import pack, unpack_from
 
 from mathutils import Vector, Euler, Matrix
-from log import *
+from .log import *
 
 def splitOffset(offset):
     return offset >> 24, offset & 0x00FFFFFF
@@ -70,10 +36,6 @@ def powof(val):
         i += 1
     return int(i)
 
-def checkUseVertexAlpha():
-    global useVertexAlpha
-    return useVertexAlpha
-
 class Tile:
     def __init__(self):
         self.current_texture_file_path = None
@@ -101,7 +63,17 @@ class Tile:
             siz[self.texSiz] if self.texSiz < len(siz) else '_UnkSiz'
         )
 
-    def create(self, segment, use_transparency, prefix=""):
+    def create(
+            self,
+            segment, 
+            use_transparency, 
+            replicate_tex_mirror_blender, 
+            enable_mirror_tags,
+            enable_clamp_tags, 
+            enable_blender_clamp,
+            enable_shadelss_materials,
+            export_textures,
+            prefix=""):
         # TODO: texture files are written several times, at each usage
         log = getLogger('Tile.create')
         fmtName = self.getFormatName()
@@ -109,32 +81,32 @@ class Tile:
         extrastring = ""
         w = self.rWidth
         if int(self.clip.x) & 1 != 0:
-            if replicateTexMirrorBlender:
+            if replicate_tex_mirror_blender:
                 w <<= 1
-            if enableTexMirrorSharpOcarinaTags:
+            if enable_mirror_tags:
                 extrastring += "#MirrorX"
         h = self.rHeight
         if int(self.clip.y) & 1 != 0:
-            if replicateTexMirrorBlender:
+            if replicate_tex_mirror_blender:
                 h <<= 1
-            if enableTexMirrorSharpOcarinaTags:
+            if enable_mirror_tags:
                 extrastring += "#MirrorY"
-        if int(self.clip.x) & 2 != 0 and enableTexClampSharpOcarinaTags:
+        if int(self.clip.x) & 2 != 0 and enable_clamp_tags:
             extrastring += "#ClampX"
-        if int(self.clip.y) & 2 != 0 and enableTexClampSharpOcarinaTags:
+        if int(self.clip.y) & 2 != 0 and enable_clamp_tags:
             extrastring += "#ClampY"
         self.current_texture_file_path = (
             '%s/textures/%s%s_%08X%s%s.tga'
-            % (fpath, prefix, fmtName, self.data,
+            % (self.config["fpath"], prefix, fmtName, self.data,
                 ('_pal%08X' % self.palette) if self.texFmt == 2 else '',
                 extrastring))
-        if exportTextures: # fixme exportTextures == False breaks the script
+        if export_textures: # fixme exportTextures == False breaks the script
             try:
-                os.mkdir(fpath + "/textures")
+                os.mkdir(self.config["fpath"] + "/textures")
             except FileExistsError:
                 pass
             except:
-                log.exception('Could not create textures directory %s' % (fpath + "/textures"))
+                log.exception('Could not create textures directory %s' % (self.config["fpath"] + "/textures"))
                 pass
             if not os.path.isfile(self.current_texture_file_path):
                 log.debug('Writing texture %s (format 0x%02X)' % (self.current_texture_file_path, self.texFmt))
@@ -174,10 +146,10 @@ class Tile:
                         32,# pixel depth
                         8  # 8 bits alpha (?)
                     ))
-                if int(self.clip.y) & 1 != 0 and replicateTexMirrorBlender:
-                    self.writeImageData(file, segment, True)
+                if int(self.clip.y) & 1 != 0 and replicate_tex_mirror_blender:
+                    self.writeImageData(file, segment, replicate_tex_mirror_blender, True)
                 else:
-                    self.writeImageData(file, segment)
+                    self.writeImageData(file, segment, replicate_tex_mirror_blender)
                 file.close()
                 if self.write_error_encountered:
                     oldName = self.current_texture_file_path
@@ -194,13 +166,13 @@ class Tile:
             img = load_image(self.current_texture_file_path)
             if img:
                 tex.image = img
-                if int(self.clip.x) & 2 != 0 and enableTexClampBlender:
+                if int(self.clip.x) & 2 != 0 and enable_blender_clamp:
                     img.use_clamp_x = True
-                if int(self.clip.y) & 2 != 0 and enableTexClampBlender:
+                if int(self.clip.y) & 2 != 0 and enable_blender_clamp:
                     img.use_clamp_y = True
             mtl_name = prefix + ('mtl_%08X' % self.data)
             mtl = bpy.data.materials.new(name=mtl_name)
-            if enableShadelessMaterials:
+            if enable_shadelss_materials:
                 mtl.use_shadeless = True
             mt = mtl.texture_slots.add()
             mt.texture = tex
@@ -219,7 +191,7 @@ class Tile:
             log.exception('Failed to create material mtl_%08X %r', self.data)
             return None
 
-    def calculateSize(self):
+    def calculateSize(self, replicate_tex_mirror_blender, enable_toon):
         log = getLogger('Tile.calculateSize')
         maxTxl, lineShift = 0, 0
         # fixme what is maxTxl? this whole function is rather mysterious, not sure how/why it works
@@ -318,15 +290,15 @@ class Tile:
         elif self.tshift.y > 0:
             self.shift.y /= 1 << int(self.tshift.y)
         self.ratio.x = (self.scale.x * self.shift.x) / self.rWidth
-        if not enableToon:
+        if not enable_toon:
             self.ratio.x /= 32;
-        if int(self.clip.x) & 1 != 0 and replicateTexMirrorBlender:
+        if int(self.clip.x) & 1 != 0 and replicate_tex_mirror_blender:
             self.ratio.x /= 2
         self.offset.x = self.rect.x
         self.ratio.y = (self.scale.y * self.shift.y) / self.rHeight
-        if not enableToon:
+        if not enable_toon:
             self.ratio.y /= 32;
-        if int(self.clip.y) & 1 != 0 and replicateTexMirrorBlender:
+        if int(self.clip.y) & 1 != 0 and replicate_tex_mirror_blender:
             self.ratio.y /= 2
         self.offset.y = 1.0 + self.rect.y
 
@@ -347,7 +319,7 @@ class Tile:
             a = 255 * (color & 1)
             file.write(pack("BBBB", b, g, r, a))
 
-    def writeImageData(self, file, segment, fy=False, df=False):
+    def writeImageData(self, file, segment, replicate_tex_mirror_blender, fy=False, df=False):
         log = getLogger('Tile.writeImageData')
         if fy == True:
             dir = (0, self.rHeight, 1)
@@ -374,9 +346,9 @@ class Tile:
             writeFallbackData = True
         if writeFallbackData:
             size = self.rWidth * self.rHeight
-            if int(self.clip.x) & 1 != 0 and replicateTexMirrorBlender:
+            if int(self.clip.x) & 1 != 0 and replicate_tex_mirror_blender:
                 size *= 2
-            if int(self.clip.y) & 1 != 0 and replicateTexMirrorBlender:
+            if int(self.clip.y) & 1 != 0 and replicate_tex_mirror_blender:
                 size *= 2
             for i in range(size):
                 if self.texFmt == 2: # CI (paletted)
@@ -449,13 +421,13 @@ class Tile:
                 file.write(pack("B" * len(line), *line))
             else:
                 file.write(pack(">" + "L" * len(line), *line))
-            if int(self.clip.x) & 1 != 0 and replicateTexMirrorBlender:
+            if int(self.clip.x) & 1 != 0 and replicate_tex_mirror_blender:
                 line.reverse()
                 if self.texFmt == 2: # CI # in (0x40, 0x48, 0x50):
                     file.write(pack("B" * len(line), *line))
                 else:
                     file.write(pack(">" + "L" * len(line), *line))
-        if int(self.clip.y) & 1 != 0 and df == False and replicateTexMirrorBlender:
+        if int(self.clip.y) & 1 != 0 and df == False and replicate_tex_mirror_blender:
             if fy == True:
                 self.writeImageData(file, segment, False, True)
             else:
@@ -470,7 +442,7 @@ class Vertex:
         self.color = [0, 0, 0, 0]
         self.limb = None
 
-    def read(self, segment, offset):
+    def read(self, segment, offset, use_vertex_alpha):
         log = getLogger('Vertex.read')
         if not validOffset(segment, offset + 16):
             log.warning('Invalid segmented offset 0x%X for vertex' % (offset + 16))
@@ -489,7 +461,7 @@ class Vertex:
         self.color[0] = min(segment[seg][offset + 12] / 255, 1.0)
         self.color[1] = min(segment[seg][offset + 13] / 255, 1.0)
         self.color[2] = min(segment[seg][offset + 14] / 255, 1.0)
-        if checkUseVertexAlpha():
+        if use_vertex_alpha:
             self.color[3] = min(segment[seg][offset + 15] / 255, 1.0)
 
 
@@ -690,10 +662,11 @@ class Hierarchy:
 
 
 class F3DZEX:
-    def __init__(self, prefix=""):
+    def __init__(self, detected_display_lists_use_transparency, config, prefix=""):
         self.prefix = prefix
+        self.config = config
 
-        self.use_transparency = detectedDisplayLists_use_transparency
+        self.use_transparency = detected_display_lists_use_transparency
         self.alreadyRead = []
         self.segment, self.vbuf, self.tile  = [], [], []
         self.geometryModeFlags = set()
@@ -825,7 +798,7 @@ class F3DZEX:
         self.animFrames = []
         self.animTotal = -1
         if (len( self.segment[0x04] ) > 0):
-            if (MajorasAnims):
+            if (self.config["majoras_anims"]):
                 for i in range(0xD000, 0xE4F8, 8):
                     self.animTotal += 1
                     self.animation.append(self.animTotal)
@@ -916,13 +889,13 @@ class F3DZEX:
             log.error('Did not find end marker 0xFFD9 in background image at 0x%X', jfifDataStart)
             return False
         try:
-            os.mkdir(fpath + '/textures')
+            os.mkdir(self.config["fpath"] + '/textures')
         except FileExistsError:
             pass
         except:
-            log.exception('Could not create textures directory %s' % (fpath + '/textures'))
+            log.exception('Could not create textures directory %s' % (self.config["fpath"] + '/textures'))
             pass
-        jfifPath = '%s/textures/jfif_%s.jfif' % (fpath, (name_format % jfifDataStart))
+        jfifPath = '%s/textures/jfif_%s.jfif' % (self.config["fpath"], (name_format % jfifDataStart))
         with open(jfifPath, 'wb') as f:
             f.write(jfifData)
         log.info('Copied jfif image to %s', jfifPath)
@@ -949,14 +922,14 @@ class F3DZEX:
         return ob
 
     def importMap(self):
-        if importStrategy == 'NO_DETECTION':
+        if self.config["import_strategy"] == 'NO_DETECTION':
             self.importMapWithHeaders()
-        elif importStrategy == 'BRUTEFORCE':
+        elif self.config["import_strategy"] == 'BRUTEFORCE':
             self.searchAndImport(3, False)
-        elif importStrategy == 'SMART':
+        elif self.config["import_strategy"] == 'SMART':
             self.importMapWithHeaders()
             self.searchAndImport(3, True)
-        elif importStrategy == 'TRY_EVERYTHING':
+        elif self.config["import_strategy"] == 'TRY_EVERYTHING':
             self.importMapWithHeaders()
             self.searchAndImport(3, False)
 
@@ -1118,7 +1091,7 @@ class F3DZEX:
             global AnimtoPlay
             if (AnimtoPlay > 0):
                 bpy.context.scene.frame_end = 1
-                if(ExternalAnimes and len(self.segment[0x0F]) > 0):
+                if(self.config["external_animes"] and len(self.segment[0x0F]) > 0):
                     self.locateExternAnimations()
                 else:
                     self.locateAnimations()
@@ -1150,19 +1123,19 @@ class F3DZEX:
             else:
                 log.info("    Load anims OFF.")
 
-        if importStrategy == 'NO_DETECTION':
+        if self.config["import_strategy"] == 'NO_DETECTION':
             pass
-        elif importStrategy == 'BRUTEFORCE':
+        elif self.config["import_strategy"] == 'BRUTEFORCE':
             self.searchAndImport(6, False)
-        elif importStrategy == 'SMART':
+        elif self.config["import_strategy"] == 'SMART':
             self.searchAndImport(6, True)
-        elif importStrategy == 'TRY_EVERYTHING':
+        elif self.config["import_strategy"] == 'TRY_EVERYTHING':
             self.searchAndImport(6, False)
 
     def searchAndImport(self, segment, skipAlreadyRead):
         log = getLogger('F3DZEX.searchAndImport')
         data = self.segment[segment]
-        self.use_transparency = detectedDisplayLists_use_transparency
+        self.use_transparency = self.config["detected_display_lists_use_transparency"]
         log.info(
             'Searching for %s display lists in segment 0x%02X (materials with transparency: %s)',
             'non-read' if skipAlreadyRead else 'any', segment, 'yes' if self.use_transparency else 'no')
@@ -1179,7 +1152,7 @@ class F3DZEX:
             # 0xEB, 0xEE, 0xEF, 0xF1 ("unimplemented -> rarely used" being the reasoning)
             # but filtering out those hurts the resulting import
             isValid = (opcode <= 0x07 or opcode >= 0xD3) #and opcode not in (0x07,0xEC,0xE4,0xF6,0xEB,0xEE,0xEF,0xF1)
-            if isValid and detectedDisplayLists_consider_unimplemented_invalid:
+            if isValid and self.config["detected_display_lists_consider_unimplemented_invalid"]:
                 
                 isValid = opcode not in (0x07,0xE5,0xEC,0xD3,0xDB,0xDC,0xDD,0xE0,0xE5,0xE9,0xF6,0xF8)
                 if not isValid:
@@ -1205,30 +1178,30 @@ class F3DZEX:
     def resetCombiner(self):
         self.primColor = Vector([1.0, 1.0, 1.0, 1.0])
         self.envColor = Vector([1.0, 1.0, 1.0, 1.0])
-        if checkUseVertexAlpha():
+        if self.config["use_vertex_alpha"]:
             self.vertexColor = Vector([1.0, 1.0, 1.0, 1.0])
         else:
             self.vertexColor = Vector([1.0, 1.0, 1.0])
         self.shadeColor = Vector([1.0, 1.0, 1.0])
 
     def checkUseNormals(self):
-        return vertexMode == 'NORMALS' or (vertexMode == 'AUTO' and 'G_LIGHTING' in self.geometryModeFlags)
+        return self.config["vertex_mode"] == 'NORMALS' or (self.config["vertex_mode"] == 'AUTO' and 'G_LIGHTING' in self.geometryModeFlags)
 
-    def getCombinerColor(self):
+    def getCombinerColor(self, use_vertex_alpha):
         def mult4d(v1, v2):
             return Vector([v1[i] * v2[i] for i in range(4)])
         cc = Vector([1.0, 1.0, 1.0, 1.0])
         # TODO: these have an effect even if vertexMode == 'NONE' ?
-        if enablePrimColor:
+        if self.config["enablePrimColor"]:
             cc = mult4d(cc, self.primColor)
-        if enableEnvColor:
+        if self.config["enableEnvColor"]:
             cc = mult4d(cc, self.envColor)
         # TODO: assume G_LIGHTING means normals if set, and colors if clear, but G_SHADE may play a role too?
-        if vertexMode == 'COLORS' or (vertexMode == 'AUTO' and 'G_LIGHTING' not in self.geometryModeFlags):
+        if self.config["vertex_mode"] == 'COLORS' or (self.config["vertex_mode"] == 'AUTO' and 'G_LIGHTING' not in self.geometryModeFlags):
             cc = mult4d(cc, self.vertexColor.to_4d())
         elif self.checkUseNormals():
             cc = mult4d(cc, self.shadeColor.to_4d())
-        if checkUseVertexAlpha():
+        if use_vertex_alpha:
             return cc
         else:
             return cc.xyz
@@ -1277,7 +1250,7 @@ class F3DZEX:
                 vaddr = w1
                 if validOffset(self.segment, vaddr + int(16 * count) - 1):
                     for j in range(count):
-                        self.vbuf[index + j].read(self.segment, vaddr + 16 * j)
+                        self.vbuf[index + j].read(self.segment, vaddr + 16 * j, self.config["use_vertex_alpha"])
                         if hierarchy:
                             self.vbuf[index + j].limb = matrix[len(matrix) - 1]
                             if self.vbuf[index + j].limb:
@@ -1305,13 +1278,23 @@ class F3DZEX:
                             material = self.material[j]
                             break
                     if material == None:
-                        material = self.tile[0].create(self.segment, self.use_transparency, prefix=self.prefix)
+                        material = self.tile[0].create(
+                            self.segment, 
+                            self.use_transparency,
+                            self.config["replicate_tex_mirror_blender"],
+                            self.config["enable_tex_mirror_sharp_ocarina_tags"],
+                            self.config["enable_tex_clamp_sharp_ocarina_tags"],
+                            self.config["enable_tex_clamp_blender"],
+                            self.config["enable_shadelss_materials"],
+                            self.config["enable_shadelss_materials"],
+                            prefix=self.prefix
+                        )
                         if material:
                             self.material.append(material)
                     has_tex = False
                 v1, v2 = None, None
                 vi1, vi2 = -1, -1
-                if not importTextures:
+                if not self.config["import_textures"]:
                     material = None
                 nbefore_props = ['verts','uvs','colors','vgroups','faces','faces_use_smooth','normals']
                 nbefore_lengths = [(nbefore_prop, len(getattr(mesh, nbefore_prop))) for nbefore_prop in nbefore_props]
@@ -1336,12 +1319,12 @@ class F3DZEX:
                         vi = verts_index[j]
                         # TODO: is this computation of shadeColor correct?
                         sc = (((v.normal.x + v.normal.y + v.normal.z) / 3) + 1.0) / 2
-                        if checkUseVertexAlpha():
+                        if self.config["use_vertex_alpha"]:
                             self.vertexColor = Vector([v.color[0], v.color[1], v.color[2], v.color[3]])
                         else:
                             self.vertexColor = Vector([v.color[0], v.color[1], v.color[2]])
                         self.shadeColor = Vector([sc, sc, sc])
-                        mesh.colors.append(self.getCombinerColor())
+                        mesh.colors.append(self.getCombinerColor(self.config["use_vertex_alpha"]))
                         mesh.uvs.append((self.tile[0].offset.x + v.uv.x * self.tile[0].ratio.x, self.tile[0].offset.y - v.uv.y * self.tile[0].ratio.y))
                         if hierarchy:
                             if v.limb:
@@ -1385,11 +1368,11 @@ class F3DZEX:
 #                        self.tile[i].scale.y = 1.0
                 pass
             # G_POPMTX
-            elif data[i] == 0xD8 and enableMatrices:
+            elif data[i] == 0xD8 and self.config["enable_matrices"]:
                 if hierarchy and len(matrix) > 1:
                     matrix.pop()
             # G_MTX
-            elif data[i] == 0xDA and enableMatrices:
+            elif data[i] == 0xDA and self.config["enable_matrices"]:
                 log.debug('0xDA G_MTX used, but implementation may be faulty')
                 # fixme this looks super weird, not sure what it's doing either
                 if hierarchy and data[i + 4] == 0x0D:
@@ -1454,7 +1437,7 @@ class F3DZEX:
                 self.tile[self.curTile].texBytes = int(self.tile[self.curTile].width * self.tile[self.curTile].height) << 1
                 if (self.tile[self.curTile].texBytes >> 16) == 0xFFFF:
                     self.tile[self.curTile].texBytes = self.tile[self.curTile].size << 16 >> 15
-                self.tile[self.curTile].calculateSize()
+                self.tile[self.curTile].calculateSize(self.config["replicate_tex_mirror_blender"], self.config["enable_toon"])
             # G_LOADTILE, G_TEXRECT, G_SETZIMG, G_SETCIMG (2d "direct" drawing?)
             elif data[i] == 0xF4 or data[i] == 0xE4 or data[i] == 0xFE or data[i] == 0xFF:
                 log.debug('0x%X %08X : %08X', data[i], w0, w1)
@@ -1472,16 +1455,16 @@ class F3DZEX:
             elif data[i] == 0xFA:
                 self.primColor = Vector([((w1 >> (8*(3-i))) & 0xFF) / 255 for i in range(4)])
                 log.debug('new primColor -> %r', self.primColor)
-                if enablePrimColor and self.primColor.w != 1 and not checkUseVertexAlpha():
+                if self.config["enable_prim_color"] and self.primColor.w != 1 and not self.config["use_vertex_alpha"]:
                     log.warning('primColor %r has non-opaque alpha, merging it into vertex colors may produce unexpected results' % self.primColor)
                 #self.primColor = Vector([min(((w1 >> 24) & 0xFF) / 255, 1.0), min(0.003922 * ((w1 >> 16) & 0xFF), 1.0), min(0.003922 * ((w1 >> 8) & 0xFF), 1.0), min(0.003922 * ((w1) & 0xFF), 1.0)])
             elif data[i] == 0xFB:
                 self.envColor = Vector([((w1 >> (8*(3-i))) & 0xFF) / 255 for i in range(4)])
                 log.debug('new envColor -> %r', self.envColor)
-                if enableEnvColor and self.envColor.w != 1 and not checkUseVertexAlpha():
+                if self.config["enable_env_color"] and self.envColor.w != 1 and not self.config["use_vertex_alpha"]:
                     log.warning('envColor %r has non-opaque alpha, merging it into vertex colors may produce unexpected results' % self.envColor)
                 #self.envColor = Vector([min(0.003922 * ((w1 >> 24) & 0xFF), 1.0), min(0.003922 * ((w1 >> 16) & 0xFF), 1.0), min(0.003922 * ((w1 >> 8) & 0xFF), 1.0)])
-                if invertEnvColor:
+                if self.config["invert_env_color"]:
                     self.envColor = Vector([1 - c for c in self.envColor])
             elif data[i] == 0xFD:
                 try:

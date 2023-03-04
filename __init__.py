@@ -35,19 +35,27 @@ bl_info = {
 if "bpy" in locals():
     import importlib
     importlib.reload(log)
-
 else:
     from .log import (
         logging_trace_level,
         logging,
         registerLogging,
-        unregisterLogging
+        unregisterLogging,
+        setLoggingLevel,
+        getLogger,
+        setLogFile,
+        setLogOperator
     )
+    from .io_import_z64 import (
+        F3DZEX
+    )
+
+import os
+import time
 
 import bpy
 from bpy.props import *
 from bpy_extras.io_utils import ExportHelper, ImportHelper
-
 
 class ImportZ64(bpy.types.Operator, ImportHelper):
     """Load a Zelda64 File"""
@@ -65,91 +73,91 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
     loadOtherSegments: BoolProperty(name="Load Data From Other Segments",
                                     description="Load data from other segments",
                                     default=True,)
-    importType: EnumProperty(
+    import_type: EnumProperty(
         name='Import type',
         items=(('AUTO', 'Auto', 'Assume Room File if .zroom or .zmap, otherwise assume Object File'),
                ('OBJECT', 'Object File', 'Assume the file being imported is an object file'),
                ('ROOM', 'Room File', 'Assume the file being imported is a room file'),),
         description='What to assume the file being imported is',
         default='AUTO',)
-    importStrategy: EnumProperty(name='Detect DLists',
+    import_strategy: EnumProperty(name='Detect DLists',
                                  items=(('NO_DETECTION', 'Minimum', 'Maps: only use headers\nObjects: only use hierarchies\nOnly this option will not create unexpected geometry'),
                                         ('BRUTEFORCE', 'Bruteforce', 'Try to import everything that looks like a display list\n(ignores header for maps)'),
                                         ('SMART', 'Smart-ish', 'Minimum + Bruteforce but avoids reading the same display lists several times'),
                                         ('TRY_EVERYTHING', 'Try everything', 'Minimum + Bruteforce'),),
                                  description='How to find display lists to import (try this if there is missing geometry)',
                                  default='NO_DETECTION',)
-    vertexMode: EnumProperty(name="Vtx Mode",
+    vertex_mode: EnumProperty(name="Vtx Mode",
                              items=(('COLORS', "COLORS", "Use vertex colors"),
                                     ('NORMALS', "NORMALS", "Use vertex normals as shading"),
                                     ('NONE', "NONE", "Don't use vertex colors or normals"),
                                     ('AUTO', "AUTO", "Switch between normals and vertex colors automatically according to 0xD9 G_GEOMETRYMODE flags"),),
                              description="Legacy option, shouldn't be useful",
                              default='AUTO',)
-    useVertexAlpha: BoolProperty(name="Use vertex alpha",
+    use_vertex_alpha: BoolProperty(name="Use vertex alpha",
                                  # TODO: Does it?
                                  description="Only enable if your version of blender has native support",
                                  default=(bpy.app.version == (2,79,7) and bpy.app.build_hash in {b'10f724cec5e3', b'e045fe53f1b0'}),)
-    enableMatrices: BoolProperty(name="Matrices",
+    enable_matrices: BoolProperty(name="Matrices",
                                  description="Use 0xDA G_MTX and 0xD8 G_POPMTX commands",
                                  default=True,)
-    detectedDisplayLists_use_transparency: BoolProperty(name="Default to transparency",
+    detected_display_lists_use_transparency: BoolProperty(name="Default to transparency",
                                                          description='Set material to use transparency or not for display lists that were detected',
                                                          default=False,)
-    detectedDisplayLists_consider_unimplemented_invalid: BoolProperty(
+    detected_display_lists_consider_unimplemented_invalid: BoolProperty(
                                     name='Unimplemented => Invalid',
                                     description='Consider that unimplemented opcodes are invalid when detecting display lists.\n'
                                                 'The reasoning is that unimplemented opcodes are very rare or never actually used.',
                                     default=True,)
-    enablePrimColor: BoolProperty(name="Use Prim Color",
+    enable_prim_color: BoolProperty(name="Use Prim Color",
                                   description="Enable blending with primitive color",
                                   default=False,) # this may be nice for strictly importing but exporting again will then not be exact
-    enableEnvColor: BoolProperty(name="Use Env Color",
+    enable_env_color: BoolProperty(name="Use Env Color",
                                  description="Enable blending with environment color",
                                  default=False,) # same as primColor above
-    invertEnvColor: BoolProperty(name="Invert Env Color",
+    invert_env_color: BoolProperty(name="Invert Env Color",
                                  description="Invert environment color (temporary fix)",
                                  default=False,) # TODO: what is this?
-    exportTextures: BoolProperty(name="Export Textures",
+    export_textures: BoolProperty(name="Export Textures",
                                  description="Export textures for the model",
                                  default=True,)
-    importTextures: BoolProperty(name="Import Textures",
+    import_textures: BoolProperty(name="Import Textures",
                                  description="Import textures for the model",
                                  default=True,)
-    enableTexClampBlender: BoolProperty(name="Texture Clamp",
+    enable_tex_clamp_blender: BoolProperty(name="Texture Clamp",
                                  description="Enable texture clamping in Blender, used by Blender in the 3d viewport and by zzconvert",
                                  default=False,)
-    replicateTexMirrorBlender: BoolProperty(name="Texture Mirror",
+    replicate_tex_mirror_blender: BoolProperty(name="Texture Mirror",
                                   description="Replicate texture mirroring by writing the textures with the mirrored parts (with double width/height) instead of the initial texture",
                                   default=False,)
-    enableTexClampSharpOcarinaTags: BoolProperty(name="Texture Clamp SO Tags",
+    enable_tex_clamp_sharp_ocarina_tags: BoolProperty(name="Texture Clamp SO Tags",
                                  description="Add #ClampX and #ClampY tags where necessary in the texture filename, used by SharpOcarina",
                                  default=False,)
-    enableTexMirrorSharpOcarinaTags: BoolProperty(name="Texture Mirror SO Tags",
+    enable_tex_mirror_sharp_ocarina_tags: BoolProperty(name="Texture Mirror SO Tags",
                                   description="Add #MirrorX and #MirrorY tags where necessary in the texture filename, used by SharpOcarina",
                                   default=False,)
-    enableShadelessMaterials: BoolProperty(name="Shadeless Materials",
+    enable_shadeless_materials: BoolProperty(name="Shadeless Materials",
                                   description="Set materials to be shadeless, prevents using environment colors in-game",
                                   default=False,)
-    enableToon: BoolProperty(name="Toony UVs",
+    enable_toon: BoolProperty(name="Toony UVs",
                              description="Obtain a toony effect by not scaling down the uv coords",
                              default=False,)
-    originalObjectScale: IntProperty(name="File Scale", # TODO: Ground this in a Unit system
+    original_object_scale: IntProperty(name="File Scale", # TODO: Ground this in a Unit system
                              description="Scale of imported object, blender model will be scaled 1/(file scale) (use 1 for maps, actors are usually 100, 10 or 1) (0 defaults to 1 for maps and 100 for actors)",
                              default=0, min=0, soft_max=1000)
-    loadAnimations: BoolProperty(name="Load animations",
+    load_animations: BoolProperty(name="Load animations",
                              description="For animated actors, load all animations or none",
                              default=True,)
-    MajorasAnims: BoolProperty(name="MajorasAnims",
+    majora_anims: BoolProperty(name="MajorasAnims",
                              description="Majora's Mask Link's Anims.",
                              default=False,)
-    ExternalAnimes: BoolProperty(name="ExternalAnimes",
+    external_animes: BoolProperty(name="ExternalAnimes",
                              description="Load External Animes.",
                              default=False,)
-    prefixMultiImport: BoolProperty(name='Prefix multi-import',
+    prefix_multi_import: BoolProperty(name='Prefix multi-import',
                              description='Add a prefix to imported data (objects, materials, images...) when importing several files at once',
                              default=True,)
-    setView3dParameters: BoolProperty(name="Set 3D View parameters",
+    set_view_3d_parameters: BoolProperty(name="Set 3D View parameters",
                              description="For maps, use a more appropriate grid size and clip distance",
                              default=True,)
     logging_level: IntProperty(name="Log level",
@@ -167,154 +175,128 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
                              default='log_io_import_z64.txt',)
 
     def execute(self, context):
-        # Definitely clean this up with an alternative
-        global importStrategy
-        global vertexMode, enableMatrices
-        global detectedDisplayLists_use_transparency
-        global detectedDisplayLists_consider_unimplemented_invalid
-        global useVertexAlpha
-        global enablePrimColor, enableEnvColor, invertEnvColor
-        global importTextures, exportTextures
-        global enableTexClampBlender, replicateTexMirrorBlender
-        global enableTexClampSharpOcarinaTags, enableTexMirrorSharpOcarinaTags
-        global enableMatrices, enableToon
-        global AnimtoPlay, MajorasAnims, ExternalAnimes
-        importStrategy = self.importStrategy
-        vertexMode = self.vertexMode
-        useVertexAlpha = self.useVertexAlpha
-        enableMatrices = self.enableMatrices
-        detectedDisplayLists_use_transparency = self.detectedDisplayLists_use_transparency
-        detectedDisplayLists_consider_unimplemented_invalid = self.detectedDisplayLists_consider_unimplemented_invalid
-        enablePrimColor = self.enablePrimColor
-        enableEnvColor = self.enableEnvColor
-        invertEnvColor = self.invertEnvColor
-        importTextures = self.importTextures
-        exportTextures = self.exportTextures
-        enableTexClampBlender = self.enableTexClampBlender
-        replicateTexMirrorBlender = self.replicateTexMirrorBlender
-        enableTexClampSharpOcarinaTags = self.enableTexClampSharpOcarinaTags
-        enableTexMirrorSharpOcarinaTags = self.enableTexMirrorSharpOcarinaTags
-        enableToon = self.enableToon
-        AnimtoPlay = 1 if self.loadAnimations else 0
-        MajorasAnims = self.MajorasAnims
-        ExternalAnimes = self.ExternalAnimes
-        global enableShadelessMaterials
-        enableShadelessMaterials = self.enableShadelessMaterials
+        keywords = self.as_keywords()
+        keywords["AnimtoPlay"] = 1 if self.load_animations else 0
+        
+        # TODO: delete this when not needed
+        for key, value in keywords.items():
+            print(f"{key}: {value}")
 
-        # setLoggingLevel(self.logging_level)
-        # log = getLogger('ImportZ64.execute')
-        # if self.logging_logfile_enable:
-        #     logfile_path = self.logging_logfile_path
-        #     if not os.path.isabs(logfile_path):
-        #         logfile_path = os.path.join(self.directory, logfile_path)
-        #     log.info('Writing logs to %s' % logfile_path)
-        #     setLogFile(logfile_path)
-        # setLogOperator(self, self.report_logging_level)
 
-        # try:
-        #     for file in self.files:
-        #         filepath = os.path.join(self.directory, file.name)
-        #         if len(self.files) == 1 or not self.prefixMultiImport:
-        #             prefix = ""
-        #         else:
-        #             prefix = file.name + "_"
-        #         self.executeSingle(filepath, prefix=prefix)
-        #     bpy.context.scene.update()
-        # finally:
-        #     setLogFile(None)
-        #     setLogOperator(None)
-        # return {'FINISHED'}
+        setLoggingLevel(self.logging_level)
+        log = getLogger('ImportZ64.execute')
+        if self.logging_logfile_enable:
+            logfile_path = self.logging_logfile_path
+            if not os.path.isabs(logfile_path):
+                logfile_path = os.path.join(self.directory, logfile_path)
+            log.info('Writing logs to %s' % logfile_path)
+            setLogFile(logfile_path)
+        setLogOperator(self, self.report_logging_level)
 
-    # def executeSingle(self, filepath, prefix=""):
-    #     global fpath
-    #     global scaleFactor
+        try:
+            for file in self.files:
+                filepath = os.path.join(self.directory, file.name)
+                if len(self.files) == 1 or not self.prefix_multi_import:
+                    prefix = ""
+                else:
+                    prefix = file.name + "_"
+                self.executeSingle(filepath, keywords, prefix=prefix)
+            bpy.context.scene.update()
+        finally:
+            setLogFile(None)
+            setLogOperator(None)
+        return {'FINISHED'}
 
-    #     fpath, fext = os.path.splitext(filepath)
-    #     fpath, fname = os.path.split(fpath)
+    def executeSingle(self, filepath, keywords, prefix=""):
+        global fpath
+        global scaleFactor
 
-    #     if self.importType == "AUTO":
-    #         if fext.lower() in {'.zmap', '.zroom'}:
-    #             importType = "ROOM"
-    #         else:
-    #             importType = "OBJECT"
-    #     else:
-    #         importType = self.importType
+        fpath, fext = os.path.splitext(filepath)
+        fpath, fname = os.path.split(fpath)
 
-    #     if self.originalObjectScale == 0:
-    #         if importType == "ROOM":
-    #             scaleFactor = 1 # maps are actually stored 1:1
-    #         else:
-    #             scaleFactor = 1 / 100 # most objects are stored 100:1
-    #     else:
-    #         scaleFactor = 1 / self.originalObjectScale
+        if self.import_type == "AUTO":
+            if fext.lower() in {'.zmap', '.zroom'}:
+                importType = "ROOM"
+            else:
+                importType = "OBJECT"
+        else:
+            importType = self.import_type
 
-    #     log = getLogger('ImportZ64.executeSingle')
+        if self.original_object_scale == 0:
+            if importType == "ROOM":
+                scaleFactor = 1 # maps are actually stored 1:1
+            else:
+                scaleFactor = 1 / 100 # most objects are stored 100:1
+        else:
+            scaleFactor = 1 / self.original_object_scale
 
-    #     log.info("Importing '%s'..." % fname)
-    #     time_start = time.time()
-    #     self.run_import(filepath, importType, prefix=prefix)
-    #     log.info("SUCCESS:  Elapsed time %.4f sec" % (time.time() - time_start))
+        log = getLogger('ImportZ64.executeSingle')
 
-    # def run_import(self, filepath, importType, prefix=""):
-    #     fpath, fext = os.path.splitext(filepath)
-    #     fpath, fname = os.path.split(fpath)
+        log.info("Importing '%s'..." % fname)
+        time_start = time.time()
+        self.run_import(filepath, importType, keywords, prefix=prefix)
+        log.info("SUCCESS:  Elapsed time %.4f sec" % (time.time() - time_start))
 
-    #     log = getLogger('ImportZ64.run_import')
-    #     f3dzex = F3DZEX(prefix=prefix)
-    #     f3dzex.loaddisplaylists(os.path.join(fpath, "displaylists.txt"))
-    #     if self.loadOtherSegments:
-    #         log.debug('Loading other segments')
-    #         # for segment 2, use [room file prefix]_scene then [same].zscene then segment_02.zdata then fallback to any .zscene
-    #         scene_file = None
-    #         if "_room" in fname:
-    #             scene_file = fpath + "/" + fname[:fname.index("_room")] + "_scene"
-    #             if not os.path.isfile(scene_file):
-    #                 scene_file += ".zscene"
-    #         if not scene_file or not os.path.isfile(scene_file):
-    #             scene_file = fpath + "/segment_02.zdata"
-    #         if not scene_file or not os.path.isfile(scene_file):
-    #             scene_file = None
-    #             for f in os.listdir(fpath):
-    #                 if f.endswith('.zscene'):
-    #                     if scene_file:
-    #                         log.warning('Found another .zscene file %s, keeping %s' % (f, scene_file))
-    #                     else:
-    #                         scene_file = fpath + '/' + f
-    #         if scene_file and os.path.isfile(scene_file):
-    #             log.info('Loading scene segment 0x02 from %s' % scene_file)
-    #             f3dzex.loadSegment(2, scene_file)
-    #         else:
-    #             log.debug('No file found to load scene segment 0x02 from')
-    #         for i in range(16):
-    #             if i == 2:
-    #                 continue
-    #             # I was told this is "ZRE" naming?
-    #             segment_data_file = fpath + "/segment_%02X.zdata" % i
-    #             if os.path.isfile(segment_data_file):
-    #                 log.info('Loading segment 0x%02X from %s' % (i, segment_data_file))
-    #                 f3dzex.loadSegment(i, segment_data_file)
-    #             else:
-    #                 log.debug('No file found to load segment 0x%02X from', i)
+    def run_import(self, filepath, importType, keywords, prefix=""):
+        fpath, fext = os.path.splitext(filepath)
+        fpath, fname = os.path.split(fpath)
 
-    #     if importType == "ROOM":
-    #         log.debug('Importing room')
-    #         f3dzex.loadSegment(0x03, filepath)
-    #         f3dzex.importMap()
-    #     else:
-    #         log.debug('Importing object')
-    #         f3dzex.loadSegment(0x06, filepath)
-    #         f3dzex.importObj()
+        log = getLogger('ImportZ64.run_import')
+        f3dzex = F3DZEX(self.detected_display_lists_use_transparency, keywords, prefix=prefix)
+        f3dzex.loaddisplaylists(os.path.join(fpath, "displaylists.txt"))
+        if self.loadOtherSegments:
+            log.debug('Loading other segments')
+            # for segment 2, use [room file prefix]_scene then [same].zscene then segment_02.zdata then fallback to any .zscene
+            scene_file = None
+            if "_room" in fname:
+                scene_file = fpath + "/" + fname[:fname.index("_room")] + "_scene"
+                if not os.path.isfile(scene_file):
+                    scene_file += ".zscene"
+            if not scene_file or not os.path.isfile(scene_file):
+                scene_file = fpath + "/segment_02.zdata"
+            if not scene_file or not os.path.isfile(scene_file):
+                scene_file = None
+                for f in os.listdir(fpath):
+                    if f.endswith('.zscene'):
+                        if scene_file:
+                            log.warning('Found another .zscene file %s, keeping %s' % (f, scene_file))
+                        else:
+                            scene_file = fpath + '/' + f
+            if scene_file and os.path.isfile(scene_file):
+                log.info('Loading scene segment 0x02 from %s' % scene_file)
+                f3dzex.loadSegment(2, scene_file)
+            else:
+                log.debug('No file found to load scene segment 0x02 from')
+            for i in range(16):
+                if i == 2:
+                    continue
+                # I was told this is "ZRE" naming?
+                segment_data_file = fpath + "/segment_%02X.zdata" % i
+                if os.path.isfile(segment_data_file):
+                    log.info('Loading segment 0x%02X from %s' % (i, segment_data_file))
+                    f3dzex.loadSegment(i, segment_data_file)
+                else:
+                    log.debug('No file found to load segment 0x%02X from', i)
 
-    #     if self.setView3dParameters:
-    #         for screen in bpy.data.screens:
-    #             for area in screen.areas:
-    #                 if area.type == 'VIEW_3D':
-    #                     if importType == "ROOM":
-    #                         area.spaces.active.grid_lines = 500
-    #                         area.spaces.active.grid_scale = 10
-    #                         area.spaces.active.grid_subdivisions = 10
-    #                         area.spaces.active.clip_end = 900000
-    #                     area.spaces.active.viewport_shade = "TEXTURED"
+        if importType == "ROOM":
+            log.debug('Importing room')
+            f3dzex.loadSegment(0x03, filepath)
+            f3dzex.importMap()
+        else:
+            log.debug('Importing object')
+            f3dzex.loadSegment(0x06, filepath)
+            f3dzex.importObj()
+
+        if self.set_view_3d_parameters:
+            for screen in bpy.data.screens:
+                for area in screen.areas:
+                    if area.type == 'VIEW_3D':
+                        if importType == "ROOM":
+                            area.spaces.active.grid_lines = 500
+                            area.spaces.active.grid_scale = 10
+                            area.spaces.active.grid_subdivisions = 10
+                            area.spaces.active.clip_end = 900000
+                        area.spaces.active.viewport_shade = "TEXTURED"
 
     def draw(self, context):
         pass

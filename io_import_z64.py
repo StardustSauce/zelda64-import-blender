@@ -1,11 +1,12 @@
-import bpy, os, struct, time
+import bpy, bmesh, os, struct
 
 from bpy.props import *
 from bpy_extras.image_utils import load_image
+from bpy_extras.node_shader_utils import PrincipledBSDFWrapper
 from math import *
 from struct import pack, unpack_from
 
-from mathutils import Vector, Euler, Matrix
+from mathutils import Vector, Matrix
 from .log import *
 
 def splitOffset(offset):
@@ -71,8 +72,8 @@ class Tile:
             enable_mirror_tags,
             enable_clamp_tags, 
             enable_blender_clamp,
-            enable_shadelss_materials,
             export_textures,
+            fpath,
             prefix=""):
         # TODO: texture files are written several times, at each usage
         log = getLogger('Tile.create')
@@ -97,16 +98,16 @@ class Tile:
             extrastring += "#ClampY"
         self.current_texture_file_path = (
             '%s/textures/%s%s_%08X%s%s.tga'
-            % (self.config["fpath"], prefix, fmtName, self.data,
+            % (fpath, prefix, fmtName, self.data,
                 ('_pal%08X' % self.palette) if self.texFmt == 2 else '',
                 extrastring))
-        if export_textures: # fixme exportTextures == False breaks the script
+        if export_textures: # FIXME: exportTextures == False breaks the script
             try:
-                os.mkdir(self.config["fpath"] + "/textures")
+                os.mkdir(fpath + "/textures")
             except FileExistsError:
                 pass
             except:
-                log.exception('Could not create textures directory %s' % (self.config["fpath"] + "/textures"))
+                log.exception('Could not create textures directory %s' % (fpath + "/textures"))
                 pass
             if not os.path.isfile(self.current_texture_file_path):
                 log.debug('Writing texture %s (format 0x%02X)' % (self.current_texture_file_path, self.texFmt))
@@ -161,32 +162,34 @@ class Tile:
                     os.rename(oldName, newName)
                     self.current_texture_file_path = newName
         try:
+            # TODO: Investigate whether Texture is needed anymore
             tex_name = prefix + ('tex_%s_%08X' % (fmtName,self.data))
-            tex = bpy.data.textures.new(name=tex_name, type='IMAGE')
+            # tex = bpy.data.textures.new(name=tex_name, type='IMAGE')
             img = load_image(self.current_texture_file_path)
             if img:
-                tex.image = img
+                # tex.image = img
                 if int(self.clip.x) & 2 != 0 and enable_blender_clamp:
                     img.use_clamp_x = True
                 if int(self.clip.y) & 2 != 0 and enable_blender_clamp:
                     img.use_clamp_y = True
+
             mtl_name = prefix + ('mtl_%08X' % self.data)
-            mtl = bpy.data.materials.new(name=mtl_name)
-            if enable_shadelss_materials:
-                mtl.use_shadeless = True
-            mt = mtl.texture_slots.add()
-            mt.texture = tex
-            mt.texture_coords = 'UV'
-            mt.use_map_color_diffuse = True
+            material = bpy.data.materials.new(name=mtl_name)
+            material.use_nodes = True
+
+            bsdf = PrincipledBSDFWrapper(material, is_readonly=False)
+            bsdf.base_color_texture.image = None
+
             if use_transparency:
-                mt.use_map_alpha = True
-                tex.use_mipmap = True
-                tex.use_interpolation = True
-                tex.use_alpha = True
-                mtl.use_transparency = True
-                mtl.alpha = 0.0
-                mtl.game_settings.alpha_blend = 'ALPHA'
-            return mtl
+                material.blend_method = "HASHED"
+                links = material.node_tree.links
+                links.new(
+                    bsdf.base_color_texture.node_image.outputs["Alpha"],
+                    bsdf.node_principled_bsdf.inputs["Alpha"]
+                )
+                
+            return material
+            
         except:
             log.exception('Failed to create material mtl_%08X %r', self.data)
             return None
@@ -194,7 +197,7 @@ class Tile:
     def calculateSize(self, replicate_tex_mirror_blender, enable_toon):
         log = getLogger('Tile.calculateSize')
         maxTxl, lineShift = 0, 0
-        # fixme what is maxTxl? this whole function is rather mysterious, not sure how/why it works
+        # FIXME: what is maxTxl? this whole function is rather mysterious, not sure how/why it works
         #texFmt 0 2 texSiz 0
         # RGBA CI 4b
         if (self.texFmt == 0 or self.texFmt == 2) and self.texSiz == 0:
@@ -442,7 +445,7 @@ class Vertex:
         self.color = [0, 0, 0, 0]
         self.limb = None
 
-    def read(self, segment, offset, use_vertex_alpha):
+    def read(self, segment, offset, scale_factor):
         log = getLogger('Vertex.read')
         if not validOffset(segment, offset + 16):
             log.warning('Invalid segmented offset 0x%X for vertex' % (offset + 16))
@@ -451,8 +454,7 @@ class Vertex:
         self.pos.x = unpack_from(">h", segment[seg], offset)[0]
         self.pos.z = unpack_from(">h", segment[seg], offset + 2)[0]
         self.pos.y = -unpack_from(">h", segment[seg], offset + 4)[0]
-        global scaleFactor
-        self.pos *= scaleFactor
+        self.pos *= scale_factor
         self.uv.x = float(unpack_from(">h", segment[seg], offset + 8)[0])
         self.uv.y = float(unpack_from(">h", segment[seg], offset + 10)[0])
         self.normal.x = unpack_from("b", segment[seg], offset + 12)[0] / 128
@@ -461,8 +463,7 @@ class Vertex:
         self.color[0] = min(segment[seg][offset + 12] / 255, 1.0)
         self.color[1] = min(segment[seg][offset + 13] / 255, 1.0)
         self.color[2] = min(segment[seg][offset + 14] / 255, 1.0)
-        if use_vertex_alpha:
-            self.color[3] = min(segment[seg][offset + 15] / 255, 1.0)
+        self.color[3] = min(segment[seg][offset + 15] / 255, 1.0)
 
 
 class Mesh:
@@ -485,31 +486,39 @@ class Mesh:
         me_name = prefix + (name_format % ('me_%08X' % offset))
         me = bpy.data.meshes.new(me_name)
         ob = bpy.data.objects.new(prefix + (name_format % ('ob_%08X' % offset)), me)
-        bpy.context.scene.objects.link(ob)
-        bpy.context.scene.objects.active = ob
-        me.vertices.add(len(self.verts))
+        bpy.context.scene.collection.objects.link(ob)
+        bpy.context.view_layer.objects.active = ob
+        bm = bmesh.new()
+        
+        for vert in self.verts:
+            bm.verts.new(vert)
 
-        for i in range(len(self.verts)):
-            me.vertices[i].co = self.verts[i]
-        me.tessfaces.add(len(self.faces))
-        vcd = me.tessface_vertex_colors.new().data
-        for i in range(len(self.faces)):
-            me.tessfaces[i].vertices = self.faces[i]
-            me.tessfaces[i].use_smooth = self.faces_use_smooth[i]
+        color_sets = [self.colors[x:x+3] for x in range(0, len(self.colors), 3)]
+        uv_sets = [self.uvs[x:x+4] for x in range(0, len(self.uvs), 4)]
+        color_layer = bm.loops.layers.color.new("Col")
+        uv_layer = bm.loops.layers.uv.new("UVMap")
 
-            vcd[i].color1 = self.colors[i * 3]
-            vcd[i].color2 = self.colors[i * 3 + 1]
-            vcd[i].color3 = self.colors[i * 3 + 2]
-        uvd = me.tessface_uv_textures.new().data
-        for i in range(len(self.faces)):
-            material = self.uvs[i * 4]
+        for face, smooth, color_set, uv_set in zip(self.faces, self.faces_use_smooth, color_sets, uv_sets):
+            verts = [x for x in bm.verts]
+            new_face = bm.faces.new([verts[x] for x in face])
+            new_face.smooth = smooth
+
+            # TODO: Figure out what this material nonsense is
+            material = uv_set[0]
             if material:
-                if not material.name in me.materials:
+                if material.name not in me.materials:
                     me.materials.append(material)
-                uvd[i].image = material.texture_slots[0].texture.image
-            uvd[i].uv[0] = self.uvs[i * 4 + 1]
-            uvd[i].uv[1] = self.uvs[i * 4 + 2]
-            uvd[i].uv[2] = self.uvs[i * 4 + 3]
+                # material.node_tree.nodes.get("Image Texture").image = 
+
+                # uvd_uv.image = material.texture_slots[0].texture.image
+
+            for loop, color, uv in zip(new_face.loops, color_set, uv_set[1:]):
+                loop[color_layer] = color
+                loop[uv_layer].uv = uv
+
+        bm.to_mesh(me)
+        bm.free()
+
         me.calc_normals()
         me.validate()
         me.update()
@@ -520,8 +529,8 @@ class Mesh:
         log.debug('normals =\n%r', self.normals)
 
         if use_normals:
-            # fixme make sure normals are set in the right order
-            # fixme duplicate faces make normal count not the loop count
+            # FIXME: make sure normals are set in the right order
+            # FIXME: duplicate faces make normal count not the loop count
             loop_normals = []
             for face_normals in self.normals:
                 loop_normals.extend(n for vi,n in face_normals)
@@ -533,7 +542,7 @@ class Mesh:
 
         if hierarchy:
             for name, vgroup in self.vgroups.items():
-                grp = ob.vertex_groups.new(name)
+                grp = ob.vertex_groups.new(name=name)
                 for v in vgroup:
                     grp.add([v], 1.0, 'REPLACE')
             ob.parent = hierarchy.armature
@@ -554,7 +563,7 @@ class Limb:
         self.poseLocPath, self.poseRotPath = None, None
         self.poseLoc, self.poseRot = Vector([0, 0, 0]), None
 
-    def read(self, segment, offset, actuallimb, BoneCount):
+    def read(self, segment, offset, actuallimb, BoneCount, scale_factor):
         seg, offset = splitOffset(offset)
 
         rot_offset = offset & 0xFFFFFF
@@ -563,8 +572,7 @@ class Limb:
         self.pos.x = unpack_from(">h", segment[seg], offset)[0]
         self.pos.z = unpack_from(">h", segment[seg], offset + 2)[0]
         self.pos.y = -unpack_from(">h", segment[seg], offset + 4)[0]
-        global scaleFactor
-        self.pos *= scaleFactor
+        self.pos *= scale_factor
         self.child = unpack_from("b", segment[seg], offset + 6)[0]
         self.sibling = unpack_from("b", segment[seg], offset + 7)[0]
         self.near = unpack_from(">L", segment[seg], offset + 8)[0]
@@ -582,7 +590,7 @@ class Hierarchy:
         self.limb = []
         self.armature = None
 
-    def read(self, segment, offset, prefix=""):
+    def read(self, segment, offset, scale_factor, prefix=""):
         log = getLogger('Hierarchy.read')
         self.dlistCount = None
         if not validOffset(segment, offset + 5):
@@ -608,7 +616,7 @@ class Hierarchy:
             limb.index = i
             self.limb.append(limb)
             if validOffset(segment, limb_offset + 12):
-                limb.read(segment, limb_offset, i, self.limbCount)
+                limb.read(segment, limb_offset, i, self.limbCount, scale_factor)
             else:
                 log.error("        ERROR:  Limb 0x%02X offset 0x%08X out of range" % (i, limb_offset))[0]
         self.limb[0].pos = Vector([0, 0, 0])
@@ -620,12 +628,12 @@ class Hierarchy:
         if (bpy.context.active_object):
             bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
         for i in bpy.context.selected_objects:
-            i.select = False
+            i.select_set(False)
         self.armature = bpy.data.objects.new(self.name, bpy.data.armatures.new("%s_armature" % self.name))
-        self.armature.show_x_ray = True
-        self.armature.data.draw_type = 'STICK'
-        bpy.context.scene.objects.link(self.armature)
-        bpy.context.scene.objects.active = self.armature
+        self.armature.show_in_front = True
+        self.armature.data.display_type = 'STICK'
+        bpy.context.scene.collection.objects.link(self.armature)
+        bpy.context.view_layer.objects.active = self.armature
         bpy.ops.object.mode_set(mode='EDIT', toggle=False)
         for i in range(self.limbCount):
             bone = self.armature.data.edit_bones.new("limb_%02i" % i)
@@ -672,6 +680,7 @@ class F3DZEX:
         self.geometryModeFlags = set()
 
         self.animTotal = 0
+        self.anim_to_play = 1 if self.config["load_animations"] else 0
         self.TimeLine = 0
         self.TimeLinePosition = 0
         self.displaylists = []
@@ -736,7 +745,7 @@ class F3DZEX:
                             j |= 0x06000000
                             log.info("    hierarchy found at 0x%08X", j)
                             h = Hierarchy()
-                            if h.read(self.segment, j, prefix=self.prefix):
+                            if h.read(self.segment, j, self.config["scale_factor"], prefix=self.prefix):
                                 self.hierarchy.append(h)
                             else:
                                 log.warning('Skipping hierarchy at 0x%08X', j)
@@ -750,8 +759,8 @@ class F3DZEX:
         for i in range(0, len(data)-15, 4):
             # detect animation header
             # ffff0000 rrrrrrrr iiiiiiii llll0000
-            # fixme data[i] == 0 but should be first byte of ffff
-            # fixme data[i+1] > 1 but why not 1 (or 0)
+            # FIXME: data[i] == 0 but should be first byte of ffff
+            # FIXME: data[i+1] > 1 but why not 1 (or 0)
             if ((data[i] == 0) and (data[i+1] > 1) and
                  (data[i+2] == 0) and (data[i+3] == 0) and
                  (data[i+4] == 0x06) and
@@ -763,7 +772,7 @@ class F3DZEX:
                 self.animation.append(i)
                 self.offsetAnims.append(i)
                 self.offsetAnims[self.animTotal] = (0x06 << 24) | i
-                # fixme it's two bytes, not one
+                # FIXME: it's two bytes, not one
                 self.durationAnims.append(data[i+1] & 0x00FFFFFF)
                 self.animTotal += 1
         if(self.animTotal > 0):
@@ -798,7 +807,7 @@ class F3DZEX:
         self.animFrames = []
         self.animTotal = -1
         if (len( self.segment[0x04] ) > 0):
-            if (self.config["majoras_anims"]):
+            if (self.config["majora_anims"]):
                 for i in range(0xD000, 0xE4F8, 8):
                     self.animTotal += 1
                     self.animation.append(self.animTotal)
@@ -910,7 +919,7 @@ class F3DZEX:
         )
         import bmesh
         bm = bmesh.new()
-        transform = Matrix.Scale(scaleFactor, 4)
+        transform = Matrix.Scale(self.config["scale_factor"], 4)
         bm.faces.new(bm.verts.new(transform * Vector((cos[i][0], 0, cos[i][1]))) for i in range(4))
         bm.to_mesh(me)
         bm.free()
@@ -918,7 +927,7 @@ class F3DZEX:
         me.uv_textures.new().data[0].image = jfifImage
         ob = bpy.data.objects.new(self.prefix + (name_format % jfifDataStart), me)
         ob.location.z = max(max(v.co.z for v in obj.data.vertices) for obj in bpy.context.scene.objects if obj.type == 'MESH')
-        bpy.context.scene.objects.link(ob)
+        bpy.context.scene.collection.objects.link(ob)
         return ob
 
     def importMap(self):
@@ -1007,7 +1016,7 @@ class F3DZEX:
                                     data, bg_record_offset + 4,
                                     name_format='bg_%d_%s' % (i, '%08X')
                                 )
-                                ob.location.y -= scaleFactor * 100 * i
+                                ob.location.y -= self.config["scale_factor"] * 100 * i
                                 if not ob:
                                     log.error('Failed to import jfif background image from record entry #%d at 0x%X, mesh header at 0x%X of type 1 format 2', i, bg_record_offset, mho)
                         else:
@@ -1085,11 +1094,10 @@ class F3DZEX:
                 else:
                     log.info("    0x%02X : n/a" % i)
         if len(self.hierarchy) > 0:
-            bpy.context.scene.objects.active = self.hierarchy[0].armature
-            self.hierarchy[0].armature.select = True
+            bpy.context.view_layer.objects.active = self.hierarchy[0].armature
+            self.hierarchy[0].armature.select_set(True)
             bpy.ops.object.mode_set(mode='POSE', toggle=False)
-            global AnimtoPlay
-            if (AnimtoPlay > 0):
+            if (self.anim_to_play > 0):
                 bpy.context.scene.frame_end = 1
                 if(self.config["external_animes"] and len(self.segment[0x0F]) > 0):
                     self.locateExternAnimations()
@@ -1108,9 +1116,9 @@ class F3DZEX:
                     armature = hierarchy.armature
                     log.info('Building animations using armature %s in %s', armature.data.name, armature.name)
                     for i in range(len(self.animation)):
-                        AnimtoPlay = i + 1
-                        log.info("   Loading animation %d/%d 0x%08X", AnimtoPlay, len(self.animation), self.offsetAnims[AnimtoPlay-1])
-                        action = bpy.data.actions.new(self.prefix + ('anim%d_%d' % (AnimtoPlay, self.durationAnims[i])))
+                        self.anim_to_play = i + 1
+                        log.info("   Loading animation %d/%d 0x%08X", self.anim_to_play, len(self.animation), self.offsetAnims[self.anim_to_play-1])
+                        action = bpy.data.actions.new(self.prefix + ('anim%d_%d' % (self.anim_to_play, self.durationAnims[i])))
                         # not sure what users an action is supposed to have, or what it should be linked to
                         action.use_fake_user = True
                         armature.animation_data.action = action
@@ -1178,33 +1186,28 @@ class F3DZEX:
     def resetCombiner(self):
         self.primColor = Vector([1.0, 1.0, 1.0, 1.0])
         self.envColor = Vector([1.0, 1.0, 1.0, 1.0])
-        if self.config["use_vertex_alpha"]:
-            self.vertexColor = Vector([1.0, 1.0, 1.0, 1.0])
-        else:
-            self.vertexColor = Vector([1.0, 1.0, 1.0])
+        self.vertexColor = Vector([1.0, 1.0, 1.0, 1.0])
         self.shadeColor = Vector([1.0, 1.0, 1.0])
 
     def checkUseNormals(self):
         return self.config["vertex_mode"] == 'NORMALS' or (self.config["vertex_mode"] == 'AUTO' and 'G_LIGHTING' in self.geometryModeFlags)
 
-    def getCombinerColor(self, use_vertex_alpha):
-        def mult4d(v1, v2):
-            return Vector([v1[i] * v2[i] for i in range(4)])
+    def getCombinerColor(self):
+        def multiply_color(v1, v2):
+            return Vector(x * y for x, y in zip(v1, v2))
         cc = Vector([1.0, 1.0, 1.0, 1.0])
         # TODO: these have an effect even if vertexMode == 'NONE' ?
-        if self.config["enablePrimColor"]:
-            cc = mult4d(cc, self.primColor)
-        if self.config["enableEnvColor"]:
-            cc = mult4d(cc, self.envColor)
+        if self.config["enable_prim_color"]:
+            cc = multiply_color(cc, self.primColor)
+        if self.config["enable_env_color"]:
+            cc = multiply_color(cc, self.envColor)
         # TODO: assume G_LIGHTING means normals if set, and colors if clear, but G_SHADE may play a role too?
         if self.config["vertex_mode"] == 'COLORS' or (self.config["vertex_mode"] == 'AUTO' and 'G_LIGHTING' not in self.geometryModeFlags):
-            cc = mult4d(cc, self.vertexColor.to_4d())
+            cc = multiply_color(cc, self.vertexColor.to_4d())
         elif self.checkUseNormals():
-            cc = mult4d(cc, self.shadeColor.to_4d())
-        if use_vertex_alpha:
-            return cc
-        else:
-            return cc.xyz
+            cc = multiply_color(cc, self.shadeColor.to_4d())
+        
+        return cc
 
     def buildDisplayList(self, hierarchy, limb, offset, mesh_name_format='%s', skipAlreadyRead=False, extraLenient=False):
         log = getLogger('F3DZEX.buildDisplayList')
@@ -1250,7 +1253,7 @@ class F3DZEX:
                 vaddr = w1
                 if validOffset(self.segment, vaddr + int(16 * count) - 1):
                     for j in range(count):
-                        self.vbuf[index + j].read(self.segment, vaddr + 16 * j, self.config["use_vertex_alpha"])
+                        self.vbuf[index + j].read(self.segment, vaddr + 16 * j, self.config["scale_factor"])
                         if hierarchy:
                             self.vbuf[index + j].limb = matrix[len(matrix) - 1]
                             if self.vbuf[index + j].limb:
@@ -1285,8 +1288,8 @@ class F3DZEX:
                             self.config["enable_tex_mirror_sharp_ocarina_tags"],
                             self.config["enable_tex_clamp_sharp_ocarina_tags"],
                             self.config["enable_tex_clamp_blender"],
-                            self.config["enable_shadelss_materials"],
-                            self.config["enable_shadelss_materials"],
+                            self.config["export_textures"],
+                            self.config["fpath"],
                             prefix=self.prefix
                         )
                         if material:
@@ -1319,12 +1322,9 @@ class F3DZEX:
                         vi = verts_index[j]
                         # TODO: is this computation of shadeColor correct?
                         sc = (((v.normal.x + v.normal.y + v.normal.z) / 3) + 1.0) / 2
-                        if self.config["use_vertex_alpha"]:
-                            self.vertexColor = Vector([v.color[0], v.color[1], v.color[2], v.color[3]])
-                        else:
-                            self.vertexColor = Vector([v.color[0], v.color[1], v.color[2]])
+                        self.vertexColor = Vector([v.color[0], v.color[1], v.color[2], v.color[3]])
                         self.shadeColor = Vector([sc, sc, sc])
-                        mesh.colors.append(self.getCombinerColor(self.config["use_vertex_alpha"]))
+                        mesh.colors.append(self.getCombinerColor())
                         mesh.uvs.append((self.tile[0].offset.x + v.uv.x * self.tile[0].ratio.x, self.tile[0].offset.y - v.uv.y * self.tile[0].ratio.y))
                         if hierarchy:
                             if v.limb:
@@ -1356,7 +1356,7 @@ class F3DZEX:
             # G_TEXTURE
             elif data[i] == 0xD7:
                 log.debug('0xD7 G_TEXTURE used, but unimplemented')
-                # fixme ?
+                # FIXME: ?
 #                for i in range(2):
 #                    if ((w1 >> 16) & 0xFFFF) < 0xFFFF:
 #                        self.tile[i].scale.x = ((w1 >> 16) & 0xFFFF) * 0.0000152587891
@@ -1374,7 +1374,7 @@ class F3DZEX:
             # G_MTX
             elif data[i] == 0xDA and self.config["enable_matrices"]:
                 log.debug('0xDA G_MTX used, but implementation may be faulty')
-                # fixme this looks super weird, not sure what it's doing either
+                # FIXME: this looks super weird, not sure what it's doing either
                 if hierarchy and data[i + 4] == 0x0D:
                     if (data[i + 3] & 0x04) == 0:
                         matrixLimb = hierarchy.getMatrixLimb(unpack_from(">L", data, i + 4)[0])
@@ -1455,14 +1455,10 @@ class F3DZEX:
             elif data[i] == 0xFA:
                 self.primColor = Vector([((w1 >> (8*(3-i))) & 0xFF) / 255 for i in range(4)])
                 log.debug('new primColor -> %r', self.primColor)
-                if self.config["enable_prim_color"] and self.primColor.w != 1 and not self.config["use_vertex_alpha"]:
-                    log.warning('primColor %r has non-opaque alpha, merging it into vertex colors may produce unexpected results' % self.primColor)
                 #self.primColor = Vector([min(((w1 >> 24) & 0xFF) / 255, 1.0), min(0.003922 * ((w1 >> 16) & 0xFF), 1.0), min(0.003922 * ((w1 >> 8) & 0xFF), 1.0), min(0.003922 * ((w1) & 0xFF), 1.0)])
             elif data[i] == 0xFB:
                 self.envColor = Vector([((w1 >> (8*(3-i))) & 0xFF) / 255 for i in range(4)])
                 log.debug('new envColor -> %r', self.envColor)
-                if self.config["enable_env_color"] and self.envColor.w != 1 and not self.config["use_vertex_alpha"]:
-                    log.warning('envColor %r has non-opaque alpha, merging it into vertex colors may produce unexpected results' % self.envColor)
                 #self.envColor = Vector([min(0.003922 * ((w1 >> 24) & 0xFF), 1.0), min(0.003922 * ((w1 >> 16) & 0xFF), 1.0), min(0.003922 * ((w1 >> 8) & 0xFF), 1.0)])
                 if self.config["invert_env_color"]:
                     self.envColor = Vector([1 - c for c in self.envColor])
@@ -1553,9 +1549,9 @@ class F3DZEX:
             if (i > -1):
                 bone = hierarchy.armature.bones["limb_%02i" % (bIndx)]
                 bone.select = True
-                bpy.ops.transform.rotate(value = radians(bonesIndx[bIndx]), axis=(0, 0, 0), constraint_axis=(True, False, False))
-                bpy.ops.transform.rotate(value = radians(bonesIndz[bIndx]), axis=(0, 0, 0), constraint_axis=(False, False, True))
-                bpy.ops.transform.rotate(value = radians(bonesIndy[bIndx]), axis=(0, 0, 0), constraint_axis=(False, True, False))
+                bpy.ops.transform.rotate(value = radians(bonesIndx[bIndx]), constraint_axis=(True, False, False))
+                bpy.ops.transform.rotate(value = radians(bonesIndz[bIndx]), constraint_axis=(False, False, True))
+                bpy.ops.transform.rotate(value = radians(bonesIndy[bIndx]), constraint_axis=(False, True, False))
                 bpy.ops.pose.select_all(action="DESELECT")
 
         hierarchy.armature.bones["limb_00"].select = True ## Translations
@@ -1570,9 +1566,9 @@ class F3DZEX:
             if (i > -1):
                 bone = hierarchy.armature.bones["limb_%02i" % (bIndx)]
                 bone.select = True
-                bpy.ops.transform.rotate(value = radians(-bonesIndy[bIndx]), axis=(0, 0, 0), constraint_axis=(False, True, False))
-                bpy.ops.transform.rotate(value = radians(-bonesIndz[bIndx]), axis=(0, 0, 0), constraint_axis=(False, False, True))
-                bpy.ops.transform.rotate(value = radians(-bonesIndx[bIndx]), axis=(0, 0, 0), constraint_axis=(True, False, False))
+                bpy.ops.transform.rotate(value = radians(-bonesIndy[bIndx]), constraint_axis=(False, True, False))
+                bpy.ops.transform.rotate(value = radians(-bonesIndz[bIndx]), constraint_axis=(False, False, True))
+                bpy.ops.transform.rotate(value = radians(-bonesIndx[bIndx]), constraint_axis=(True, False, False))
                 bpy.ops.pose.select_all(action="DESELECT")
 
         hierarchy.armature.bones["limb_00"].select = True ## Translations
@@ -1582,8 +1578,6 @@ class F3DZEX:
         bpy.ops.pose.select_all(action="DESELECT")
 
     def buildLinkAnimations(self, hierarchy, newframe):
-        global AnimtoPlay
-        global Animscount
         log = getLogger('F3DZEX.buildLinkAnimations')
         # TODO: buildLinkAnimations hasn't been rewritten/improved like buildAnimations has
         log.warning('The code to build link animations has not been improved/tested for a while, not sure what features it lacks compared to regular animations, pretty sure it will not import all animations')
@@ -1599,8 +1593,8 @@ class F3DZEX:
         RX, RY, RZ = 0,0,0
         frameCurrent = newframe
 
-        if (AnimtoPlay > 0 and AnimtoPlay <= n_anims):
-          currentanim = AnimtoPlay - 1
+        if (self.anim_to_play > 0 and self.anim_to_play <= n_anims):
+          currentanim = self.anim_to_play - 1
         else:
           currentanim = 0
 
@@ -1659,9 +1653,9 @@ class F3DZEX:
             if (i > -1):
                 bone = hierarchy.armature.bones["limb_%02i" % (bIndx)]
                 bone.select = True
-                bpy.ops.transform.rotate(value = radians(RXX), axis=(0, 0, 0), constraint_axis=(True, False, False))
-                bpy.ops.transform.rotate(value = radians(RZZ), axis=(0, 0, 0), constraint_axis=(False, False, True))
-                bpy.ops.transform.rotate(value = radians(RYY), axis=(0, 0, 0), constraint_axis=(False, True, False))
+                bpy.ops.transform.rotate(value = radians(RXX), constraint_axis=(True, False, False))
+                bpy.ops.transform.rotate(value = radians(RZZ), constraint_axis=(False, False, True))
+                bpy.ops.transform.rotate(value = radians(RYY), constraint_axis=(False, True, False))
                 bpy.ops.pose.select_all(action="DESELECT")
 
         hierarchy.armature.bones["limb_00"].select = True ## Translations
@@ -1702,9 +1696,9 @@ class F3DZEX:
                 if (i > -1):
                     bone = hierarchy.armature.bones["limb_%02i" % (i)]
                     bone.select = True
-                    bpy.ops.transform.rotate(value = radians(RYY), axis=(0, 0, 0), constraint_axis=(False, True, False))
-                    bpy.ops.transform.rotate(value = radians(RZZ), axis=(0, 0, 0), constraint_axis=(False, False, True))
-                    bpy.ops.transform.rotate(value = radians(RXX), axis=(0, 0, 0), constraint_axis=(True, False, False))
+                    bpy.ops.transform.rotate(value = radians(RYY), constraint_axis=(False, True, False))
+                    bpy.ops.transform.rotate(value = radians(RZZ), constraint_axis=(False, False, True))
+                    bpy.ops.transform.rotate(value = radians(RXX), constraint_axis=(True, False, False))
                     bpy.ops.pose.select_all(action="DESELECT")
 
             bpy.context.scene.frame_end += 1
@@ -1726,8 +1720,8 @@ class F3DZEX:
         segment = self.segment
         RX, RY, RZ = 0,0,0
         n_anims = self.animTotal
-        if (AnimtoPlay > 0 and AnimtoPlay <= n_anims):
-            currentanim = AnimtoPlay - 1
+        if (self.anim_to_play > 0 and self.anim_to_play <= n_anims):
+            currentanim = self.anim_to_play - 1
         else:
             currentanim = 0
 
@@ -1790,10 +1784,9 @@ class F3DZEX:
         TRZ = rot_vals(Trot_indy)
         TRY = rot_vals(Trot_indz)
 
-        global scaleFactor
-        newLocx =  TRX * scaleFactor
-        newLocz =  TRZ * scaleFactor
-        newLocy = -TRY * scaleFactor
+        newLocx =  TRX * self.config["scale_factor"]
+        newLocz =  TRZ * self.config["scale_factor"]
+        newLocy = -TRY * self.config["scale_factor"]
         log.trace("X %d Y %d Z %d", int(TRX), int(TRY), int(TRZ))
 
         log.trace("       %d Frames %d still values %f tracks",frameTotal, Limit, ((rot_vals_max_length - Limit) / frameTotal)) # what is this debug message?
@@ -1801,7 +1794,7 @@ class F3DZEX:
             bIndx = ((BoneCountMax-1) - i) # Had to reverse here, cuz didn't find a way to rotate bones on LOCAL space, start rotating from last to first bone on hierarchy GLOBAL.
 
             if RotIndexoffset + (bIndx * 6) + 10 + 2 > len(segment[AniSeg]):
-                log.trace('Ignoring bone %d in animation %d, rotation table does not have that many entries', bIndx, AnimtoPlay)
+                log.trace('Ignoring bone %d in animation %d, rotation table does not have that many entries', bIndx, self.anim_to_play)
                 continue
 
             rot_indexx = unpack_from(">h", segment[AniSeg], RotIndexoffset + (bIndx * 6) + 6)[0]
@@ -1824,7 +1817,7 @@ class F3DZEX:
             RZ = rot_vals(rot_indy, False)
 
             if RX is False or RY is False or RZ is False:
-                log.trace('Ignoring bone %d in animation %d, rotation table did not have the entry', bIndx, AnimtoPlay)
+                log.trace('Ignoring bone %d in animation %d, rotation table did not have the entry', bIndx, self.anim_to_play)
                 continue
 
             RX /= 182.04444444444444444444 # = 0x10000 / 360
@@ -1840,9 +1833,9 @@ class F3DZEX:
             if (bIndx > -1):
                 bone = armature.data.bones["limb_%02i" % (bIndx)]
                 bone.select = True
-                bpy.ops.transform.rotate(value = RXX, axis=(0, 0, 0), constraint_axis=(True, False, False))
-                bpy.ops.transform.rotate(value = RZZ, axis=(0, 0, 0), constraint_axis=(False, False, True))
-                bpy.ops.transform.rotate(value = RYY, axis=(0, 0, 0), constraint_axis=(False, True, False))
+                bpy.ops.transform.rotate(value = RXX, constraint_axis=(True, False, False))
+                bpy.ops.transform.rotate(value = RZZ, constraint_axis=(False, False, True))
+                bpy.ops.transform.rotate(value = RYY, constraint_axis=(False, True, False))
                 bpy.ops.pose.select_all(action="DESELECT")
 
         bone = armature.pose.bones["limb_00"]
@@ -1859,7 +1852,7 @@ class F3DZEX:
             bIndx = i
 
             if RotIndexoffset + (bIndx * 6) + 10 + 2 > len(segment[AniSeg]):
-                log.trace('Ignoring bone %d in animation %d, rotation table does not have that many entries', bIndx, AnimtoPlay)
+                log.trace('Ignoring bone %d in animation %d, rotation table does not have that many entries', bIndx, self.anim_to_play)
                 continue
 
             rot_indexx = unpack_from(">h", segment[AniSeg], RotIndexoffset + (bIndx * 6) + 6)[0]
@@ -1882,7 +1875,7 @@ class F3DZEX:
             RZ = rot_vals(rot_indy, False)
 
             if RX is False or RY is False or RZ is False:
-                log.trace('Ignoring bone %d in animation %d, rotation table did not have the entry', bIndx, AnimtoPlay)
+                log.trace('Ignoring bone %d in animation %d, rotation table did not have the entry', bIndx, self.anim_to_play)
                 continue
 
             RX /= -182.04444444444444444444
@@ -1898,9 +1891,9 @@ class F3DZEX:
             if (bIndx > -1):
                 bone = armature.data.bones["limb_%02i" % (bIndx)]
                 bone.select = True
-                bpy.ops.transform.rotate(value = RYY, axis=(0, 0, 0), constraint_axis=(False, True, False))
-                bpy.ops.transform.rotate(value = RZZ, axis=(0, 0, 0), constraint_axis=(False, False, True))
-                bpy.ops.transform.rotate(value = RXX, axis=(0, 0, 0), constraint_axis=(True, False, False))
+                bpy.ops.transform.rotate(value = RYY, constraint_axis=(False, True, False))
+                bpy.ops.transform.rotate(value = RZZ, constraint_axis=(False, False, True))
+                bpy.ops.transform.rotate(value = RXX, constraint_axis=(True, False, False))
                 bpy.ops.pose.select_all(action="DESELECT")
 
         if (frameCurrent < (frameTotal - 1)):## Next Frame
@@ -1908,6 +1901,3 @@ class F3DZEX:
             self.buildAnimations(hierarchyMostBones, frameCurrent)
         else:
             bpy.context.scene.frame_current = 1
-
-global Animscount
-Animscount = 1

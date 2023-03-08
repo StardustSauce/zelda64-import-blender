@@ -70,7 +70,7 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
         type=bpy.types.OperatorFileListElement,)
     directory: StringProperty(subtype='DIR_PATH')
 
-    loadOtherSegments: BoolProperty(name="Load Data From Other Segments",
+    load_other_segments: BoolProperty(name="Load Data From Other Segments",
                                     description="Load data from other segments",
                                     default=True,)
     import_type: EnumProperty(
@@ -94,10 +94,6 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
                                     ('AUTO', "AUTO", "Switch between normals and vertex colors automatically according to 0xD9 G_GEOMETRYMODE flags"),),
                              description="Legacy option, shouldn't be useful",
                              default='AUTO',)
-    use_vertex_alpha: BoolProperty(name="Use vertex alpha",
-                                 # TODO: Does it?
-                                 description="Only enable if your version of blender has native support",
-                                 default=(bpy.app.version == (2,79,7) and bpy.app.build_hash in {b'10f724cec5e3', b'e045fe53f1b0'}),)
     enable_matrices: BoolProperty(name="Matrices",
                                  description="Use 0xDA G_MTX and 0xD8 G_POPMTX commands",
                                  default=True,)
@@ -136,9 +132,10 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
     enable_tex_mirror_sharp_ocarina_tags: BoolProperty(name="Texture Mirror SO Tags",
                                   description="Add #MirrorX and #MirrorY tags where necessary in the texture filename, used by SharpOcarina",
                                   default=False,)
-    enable_shadeless_materials: BoolProperty(name="Shadeless Materials",
-                                  description="Set materials to be shadeless, prevents using environment colors in-game",
-                                  default=False,)
+    # Shadeless materials no longer exist in 2.80. Only Eevee Renderer has an alternative.
+    # enable_shadeless_materials: BoolProperty(name="Shadeless Materials",
+    #                               description="Set materials to be shadeless, prevents using environment colors in-game",
+    #                               default=False,)
     enable_toon: BoolProperty(name="Toony UVs",
                              description="Obtain a toony effect by not scaling down the uv coords",
                              default=False,)
@@ -176,12 +173,6 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
 
     def execute(self, context):
         keywords = self.as_keywords()
-        keywords["AnimtoPlay"] = 1 if self.load_animations else 0
-        
-        # TODO: delete this when not needed
-        for key, value in keywords.items():
-            print(f"{key}: {value}")
-
 
         setLoggingLevel(self.logging_level)
         log = getLogger('ImportZ64.execute')
@@ -201,18 +192,15 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
                 else:
                     prefix = file.name + "_"
                 self.executeSingle(filepath, keywords, prefix=prefix)
-            bpy.context.scene.update()
+            bpy.context.view_layer.update()
         finally:
             setLogFile(None)
             setLogOperator(None)
         return {'FINISHED'}
 
     def executeSingle(self, filepath, keywords, prefix=""):
-        global fpath
-        global scaleFactor
-
-        fpath, fext = os.path.splitext(filepath)
-        fpath, fname = os.path.split(fpath)
+        keywords["fpath"], fext = os.path.splitext(filepath)
+        keywords["fpath"], fname = os.path.split(keywords["fpath"])
 
         if self.import_type == "AUTO":
             if fext.lower() in {'.zmap', '.zroom'}:
@@ -224,11 +212,11 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
 
         if self.original_object_scale == 0:
             if importType == "ROOM":
-                scaleFactor = 1 # maps are actually stored 1:1
+                keywords["scale_factor"] = 1 # maps are actually stored 1:1
             else:
-                scaleFactor = 1 / 100 # most objects are stored 100:1
+                keywords["scale_factor"] = 1 / 100 # most objects are stored 100:1
         else:
-            scaleFactor = 1 / self.original_object_scale
+            keywords["scale_factor"] = 1 / self.original_object_scale
 
         log = getLogger('ImportZ64.executeSingle')
 
@@ -244,7 +232,7 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
         log = getLogger('ImportZ64.run_import')
         f3dzex = F3DZEX(self.detected_display_lists_use_transparency, keywords, prefix=prefix)
         f3dzex.loaddisplaylists(os.path.join(fpath, "displaylists.txt"))
-        if self.loadOtherSegments:
+        if self.load_other_segments:
             log.debug('Loading other segments')
             # for segment 2, use [room file prefix]_scene then [same].zscene then segment_02.zdata then fallback to any .zscene
             scene_file = None
@@ -296,7 +284,7 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
                             area.spaces.active.grid_scale = 10
                             area.spaces.active.grid_subdivisions = 10
                             area.spaces.active.clip_end = 900000
-                        area.spaces.active.viewport_shade = "TEXTURED"
+                        area.spaces.active.shading.type = "MATERIAL"
 
     def draw(self, context):
         pass
@@ -322,20 +310,18 @@ class ZOBJ_PT_import_config(bpy.types.Panel):
         sfile = context.space_data
         operator = sfile.active_operator
 
-        layout.prop(operator, 'importType', text='Type')
-        layout.prop(operator, 'importStrategy', text='Strategy')
-        if operator.importStrategy != 'NO_DETECTION':
-            layout.prop(operator, 'detectedDisplayLists_use_transparency')
-            layout.prop(operator, 'detectedDisplayLists_consider_unimplemented_invalid')
-        layout.prop(operator, "vertexMode")
-        layout.prop(operator, 'useVertexAlpha')
-        layout.prop(operator, "loadOtherSegments")
-        layout.prop(operator, "originalObjectScale")
-        layout.prop(operator, "enableMatrices")
-        layout.prop(operator, "enableShadelessMaterials")
-        layout.prop(operator, "enableToon")
-        layout.prop(operator, "prefixMultiImport")
-        layout.prop(operator, "setView3dParameters")
+        layout.prop(operator, 'import_type', text='Type')
+        layout.prop(operator, 'import_strategy', text='Strategy')
+        if operator.import_strategy != 'NO_DETECTION':
+            layout.prop(operator, 'detected_display_lists_use_transparency')
+            layout.prop(operator, 'detected_display_lists_consider_unimplemented_invalid')
+        layout.prop(operator, "vertex_mode")
+        layout.prop(operator, "load_other_segments")
+        layout.prop(operator, "original_object_scale")
+        layout.prop(operator, "enable_matrices")
+        layout.prop(operator, "enable_toon")
+        layout.prop(operator, "prefix_multi_import")
+        layout.prop(operator, "set_view_3d_parameters")
 
 class ZOBJ_PT_import_texture(bpy.types.Panel):
     bl_space_type = 'FILE_BROWSER'
@@ -358,25 +344,25 @@ class ZOBJ_PT_import_texture(bpy.types.Panel):
         sfile = context.space_data
         operator = sfile.active_operator
 
-        layout.prop(operator, "enableTexClampBlender")
-        layout.prop(operator, "replicateTexMirrorBlender")
-        if operator.replicateTexMirrorBlender:
+        layout.prop(operator, "enable_tex_clamp_blender")
+        layout.prop(operator, "replicate_tex_mirror_blender")
+        if operator.replicate_tex_mirror_blender:
             wBox = layout.box()
             wBox.label(text='Enabling texture mirroring', icon='ERROR')
             wBox.label(text='will break exporting with', icon='BLANK1')
             wBox.label(text='SharpOcarina, and may break', icon='BLANK1')
             wBox.label(text='exporting in general with', icon='BLANK1')
             wBox.label(text='other tools.', icon='BLANK1')
-        layout.prop(operator, "enableTexClampSharpOcarinaTags")
-        layout.prop(operator, "enableTexMirrorSharpOcarinaTags")
+        layout.prop(operator, "enable_tex_clamp_sharp_ocarina_tags")
+        layout.prop(operator, "enable_tex_mirror_sharp_ocarina_tags")
 
         layout.separator()
 
-        layout.prop(operator, "enablePrimColor")
-        layout.prop(operator, "enableEnvColor")
-        layout.prop(operator, "invertEnvColor")
-        layout.prop(operator, "exportTextures")
-        layout.prop(operator, "importTextures")
+        layout.prop(operator, "enable_prim_color")
+        layout.prop(operator, "enable_env_color")
+        layout.prop(operator, "invert_env_color")
+        layout.prop(operator, "export_textures")
+        layout.prop(operator, "import_textures")
 
 class ZOBJ_PT_import_animation(bpy.types.Panel):
     bl_space_type = 'FILE_BROWSER'
@@ -399,9 +385,9 @@ class ZOBJ_PT_import_animation(bpy.types.Panel):
         sfile = context.space_data
         operator = sfile.active_operator
 
-        layout.prop(operator, "loadAnimations")
-        layout.prop(operator, "MajorasAnims")
-        layout.prop(operator, "ExternalAnimes") 
+        layout.prop(operator, "load_animations")
+        layout.prop(operator, "majora_anims")
+        layout.prop(operator, "external_animes") 
 
 class ZOBJ_PT_import_logging(bpy.types.Panel):
     bl_space_type = 'FILE_BROWSER'

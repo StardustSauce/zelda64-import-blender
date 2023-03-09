@@ -44,12 +44,11 @@ class Tile:
         self.palette = 0x00000000
 
     def getFormatName(self):
-        fmt = ['RGBA','YUV','CI','IA','I']
-        siz = ['4','8','16','32']
-        return '%s%s' % (
-            fmt[self.texFmt] if self.texFmt < len(fmt) else 'UnkFmt',
-            siz[self.texSiz] if self.texSiz < len(siz) else '_UnkSiz'
-        )
+        formats = ["RGBA","YUV","CI","IA","I"]
+        sizes = ["4","8","16","32"]
+        format = formats[self.texFmt] if self.texFmt < len(formats) else "UnkFmt"
+        size = sizes[self.texSiz] if self.texSiz < len(sizes) else "_UnkSiz"
+        return f"{format}{size}"
 
     def create(
             self,
@@ -63,7 +62,7 @@ class Tile:
             fpath,
             prefix=""):
         # TODO: texture files are written several times, at each usage
-        log = getLogger('Tile.create')
+        log = getLogger("Tile.create")
         fmtName = self.getFormatName()
         #Noka here
         extrastring = ""
@@ -83,26 +82,22 @@ class Tile:
             extrastring += "#ClampX"
         if int(self.clip.y) & 2 != 0 and enable_clamp_tags:
             extrastring += "#ClampY"
-        self.current_texture_file_path = (
-            '%s/textures/%s%s_%08X%s%s.tga'
-            % (fpath, prefix, fmtName, self.data,
-                ('_pal%08X' % self.palette) if self.texFmt == 2 else '',
-                extrastring))
+        self.current_texture_file_path = f"{fpath}/textures/{prefix}{fmtName}_{self.data:08X}{f'_pal{self.palette:08X}' if self.texFmt == 2 else ''}{extrastring}.tga"
         if export_textures: # FIXME: exportTextures == False breaks the script
             try:
                 os.mkdir(fpath + "/textures")
             except FileExistsError:
                 pass
             except:
-                log.exception('Could not create textures directory %s' % (fpath + "/textures"))
+                log.exception(f"Could not create textures directory {fpath + '/textures'}")
                 pass
             if not os.path.isfile(self.current_texture_file_path):
-                log.debug('Writing texture %s (format 0x%02X)' % (self.current_texture_file_path, self.texFmt))
-                file = open(self.current_texture_file_path, 'wb')
+                log.debug(f"Writing texture {self.current_texture_file_path} (format 0x{self.texFmt:02X})")
+                file = open(self.current_texture_file_path, "wb")
                 self.write_error_encountered = False
                 if self.texFmt == 2:
                     if self.texSiz not in (0, 1):
-                        log.error('Unknown texture format %d with pixel size %d', self.texFmt, self.texSiz)
+                        log.error(f"Unknown texture format {self.texFmt} with pixel size {self.texSiz}")
                     p = 16 if self.texSiz == 0 else 256
                     file.write(pack("<BBBHHBHHHHBB",
                         0,  # image comment length
@@ -142,16 +137,16 @@ class Tile:
                 if self.write_error_encountered:
                     oldName = self.current_texture_file_path
                     oldNameDir, oldNameBase = os.path.split(oldName)
-                    newName = oldNameDir + '/' + prefix + 'fallback_' + oldNameBase
-                    log.warning('Moving failed texture file import from %s to %s', oldName, newName)
+                    newName = f"{oldNameDir}/{prefix}fallback_{oldNameBase}"
+                    log.warning(f"Moving failed texture file import from {oldName} to {newName}")
                     if os.path.isfile(newName):
                         os.remove(newName)
                     os.rename(oldName, newName)
                     self.current_texture_file_path = newName
         try:
             # TODO: Investigate whether Texture is needed anymore
-            tex_name = prefix + ('tex_%s_%08X' % (fmtName,self.data))
-            # tex = bpy.data.textures.new(name=tex_name, type='IMAGE')
+            tex_name = f"{prefix}tex_{fmtName}_{self.data:08X}"
+            # tex = bpy.data.textures.new(name=tex_name, type="IMAGE")
             img = load_image(self.current_texture_file_path)
             if img:
                 # tex.image = img
@@ -160,7 +155,7 @@ class Tile:
                 if int(self.clip.y) & 2 != 0 and enable_blender_clamp:
                     img.use_clamp_y = True
 
-            mtl_name = prefix + ('mtl_%08X' % self.data)
+            mtl_name = f"{prefix}mtl_{self.data:08X}"
             material = bpy.data.materials.new(name=mtl_name)
             material.use_nodes = True
 
@@ -178,7 +173,7 @@ class Tile:
             return material
             
         except:
-            log.exception('Failed to create material mtl_%08X %r', self.data)
+            log.exception(f"Failed to create material mtl_{self.data:08X}")
             return None
 
     def calculateSize(self, replicate_tex_mirror_blender, enable_toon):
@@ -195,7 +190,7 @@ class Tile:
                 i += 1
             return int(i)
 
-        log = getLogger('Tile.calculateSize')
+        log = getLogger("Tile.calculateSize")
         maxTxl, lineShift = 0, 0
         # FIXME: what is maxTxl? this whole function is rather mysterious, not sure how/why it works
         #texFmt 0 2 texSiz 0
@@ -234,7 +229,7 @@ class Tile:
             maxTxl = 1024
             lineShift = 2
         else:
-            log.warning('Unknown format for texture %s texFmt %d texSiz %d', self.current_texture_file_path, self.texFmt, self.texSiz)
+            log.warning(f"Unknown format for texture {self.current_texture_file_path} texFmt {self.texFmt} texSiz {self.texSiz}")
         lineWidth = self.lineSize << lineShift
         self.lineSize = lineWidth
         tileWidth = self.rect.z - self.rect.x + 1
@@ -306,9 +301,9 @@ class Tile:
         self.offset.y = 1.0 + self.rect.y
 
     def writePalette(self, file, segment, palSize):
-        log = getLogger('Tile.writePalette')
+        log = getLogger("Tile.writePalette")
         if not validOffset(segment, self.palette + palSize * 2 - 1):
-            log.error('Segment offsets 0x%X-0x%X are invalid, writing black palette to %s (has the segment data been loaded?)' % (self.palette, self.palette + palSize * 2 - 1, self.current_texture_file_path))
+            log.error(f"Segment offsets 0x{self.palette:X}-0x{self.palette + palSize * 2 - 1:X} are invalid, writing black palette to {self.current_texture_file_path} (has the segment data been loaded?)")
             for i in range(palSize):
                 file.write(pack("L", 0))
             self.write_error_encountered = True
@@ -323,7 +318,7 @@ class Tile:
             file.write(pack("BBBB", b, g, r, a))
 
     def writeImageData(self, file, segment, replicate_tex_mirror_blender, fy=False, df=False):
-        log = getLogger('Tile.writeImageData')
+        log = getLogger("Tile.writeImageData")
         if fy == True:
             dir = (0, self.rHeight, 1)
         else:
@@ -331,12 +326,12 @@ class Tile:
         if self.texSiz <= 3:
             bpp = (0.5,1,2,4)[self.texSiz] # bytes (not bits) per pixel
         else:
-            log.warning('Unknown texSiz %d for texture %s, defaulting to 4 bytes per pixel' % (self.texSiz, self.current_texture_file_path))
+            log.warning(f"Unknown texSiz {self.texSiz} for texture {self.current_texture_file_path}, defaulting to 4 bytes per pixel")
             bpp = 4
         lineSize = self.rWidth * bpp
         writeFallbackData = False
         if not validOffset(segment, self.data + int(self.rHeight * lineSize) - 1):
-            log.error('Segment offsets 0x%X-0x%X are invalid, writing default fallback colors to %s (has the segment data been loaded?)' % (self.data, self.data + int(self.rHeight * lineSize) - 1, self.current_texture_file_path))
+            log.error(f"Segment offsets 0x{self.data:X}-0x{self.data + int(self.rHeight * lineSize) - 1:X} are invalid, writing default fallback colors to {self.current_texture_file_path} (has the segment data been loaded?)")
             writeFallbackData = True
         if (self.texFmt,self.texSiz) not in (
             (0,2), (0,3), # RGBA16, RGBA32
@@ -345,7 +340,7 @@ class Tile:
             (3,0), (3,1), (3,2), # IA4, IA8, IA16
             (4,0), (4,1), # I4, I8
         ):
-            log.error('Unknown fmt/siz combination %d/%d (%s?)', self.texFmt, self.texSiz, self.getFormatName())
+            log.error(f"Unknown fmt/siz combination {self.texFmt}/{self.texSiz} ({self.getFormatName()}?)")
             writeFallbackData = True
         if writeFallbackData:
             size = self.rWidth * self.rHeight
@@ -411,7 +406,7 @@ class Tile:
                     else:
                         line.append((b << 24) | (g << 16) | (r << 8) | a)
                 except UnboundLocalError:
-                    log.error('Unknown format texFmt %d texSiz %d', self.texFmt, self.texSiz)
+                    log.error(f"Unknown format texFmt {self.texFmt} texSiz {self.texSiz}")
                     raise
                 """
                 if self.texFmt == 0x40 or self.texFmt == 0x48 or self.texFmt == 0x50:
@@ -446,9 +441,9 @@ class Vertex:
         self.limb = None
 
     def read(self, segment, offset, scale_factor):
-        log = getLogger('Vertex.read')
+        log = getLogger("Vertex.read")
         if not validOffset(segment, offset + 16):
-            log.warning('Invalid segmented offset 0x%X for vertex' % (offset + 16))
+            log.warning(f"Invalid segmented offset 0x{offset + 16:X} for vertex")
             return
         seg, offset = splitOffset(offset)
         self.pos.x = unpack_from(">h", segment[seg], offset)[0]
@@ -475,17 +470,17 @@ class Mesh:
         self.normals = []
 
     def create(self, name_format, hierarchy, offset, use_normals, prefix=""):
-        log = getLogger('Mesh.create')
+        log = getLogger("Mesh.create")
         if len(self.faces) == 0:
-            log.trace('Skipping empty mesh %08X', offset)
+            log.trace(f"Skipping empty mesh {offset:08X}")
             if self.verts:
-                log.warning('Discarding unused vertices, no faces')
+                log.warning("Discarding unused vertices, no faces")
             return
-        log.trace('Creating mesh %08X', offset)
+        log.trace(f"Creating mesh {offset:08X}")
 
-        me_name = prefix + (name_format % ('me_%08X' % offset))
+        me_name = prefix + (name_format % f"me_{offset:08X}")
         me = bpy.data.meshes.new(me_name)
-        ob = bpy.data.objects.new(prefix + (name_format % ('ob_%08X' % offset)), me)
+        ob = bpy.data.objects.new(f"{prefix}{name_format % f'ob_{offset:08X}'}", me)
         bpy.context.scene.collection.objects.link(ob)
         bpy.context.view_layer.objects.active = ob
         bm = bmesh.new()
@@ -523,10 +518,10 @@ class Mesh:
         me.validate()
         me.update()
 
-        log.debug('me =\n%r', me)
-        log.debug('verts =\n%r', self.verts)
-        log.debug('faces =\n%r', self.faces)
-        log.debug('normals =\n%r', self.normals)
+        log.debug(f"me =\n{me}", me)
+        log.debug(f"verts =\n{self.verts}")
+        log.debug(f"faces =\n{self.faces}")
+        log.debug(f"normals =\n{self.normals}")
 
         if use_normals:
             # FIXME: make sure normals are set in the right order
@@ -538,15 +533,15 @@ class Mesh:
             try:
                 me.normals_split_custom_set(loop_normals)
             except:
-                log.exception('normals_split_custom_set failed, known issue due to duplicate faces')
+                log.exception("normals_split_custom_set failed, known issue due to duplicate faces")
 
         if hierarchy:
             for name, vgroup in self.vgroups.items():
                 grp = ob.vertex_groups.new(name=name)
                 for v in vgroup:
-                    grp.add([v], 1.0, 'REPLACE')
+                    grp.add([v], 1.0, "REPLACE")
             ob.parent = hierarchy.armature
-            mod = ob.modifiers.new(hierarchy.name, 'ARMATURE')
+            mod = ob.modifiers.new(hierarchy.name, "ARMATURE")
             mod.object = hierarchy.armature
             mod.use_bone_envelopes = False
             mod.use_vertex_groups = True
@@ -581,7 +576,7 @@ class Limb:
         self.poseLoc.x = unpack_from(">h", segment[seg], rot_offset)[0]
         self.poseLoc.z = unpack_from(">h", segment[seg], rot_offset + 2)[0]
         self.poseLoc.y = unpack_from(">h", segment[seg], rot_offset + 4)[0]
-        getLogger('Limb.read').trace("      Limb %r: %f,%f,%f", actuallimb, self.poseLoc.x, self.poseLoc.z, self.poseLoc.y)
+        getLogger("Limb.read").trace(f"      Limb {actuallimb}: {self.poseLoc.x:f},{self.poseLoc.z:f},{self.poseLoc.y:f}")
 
 class Hierarchy:
     def __init__(self):
@@ -591,20 +586,20 @@ class Hierarchy:
         self.armature = None
 
     def read(self, segment, offset, scale_factor, prefix=""):
-        log = getLogger('Hierarchy.read')
+        log = getLogger("Hierarchy.read")
         self.dlistCount = None
         if not validOffset(segment, offset + 5):
-            log.error('Invalid segmented offset 0x%X for hierarchy' % (offset + 5))
+            log.error(f"Invalid segmented offset 0x{offset + 5:X} for hierarchy")
             return False
         if not validOffset(segment, offset + 9):
-            log.warning('Invalid segmented offset 0x%X for hierarchy (incomplete header), still trying to import ignoring dlistCount' % (offset + 9))
+            log.warning(f"Invalid segmented offset 0x{offset + 9:X} for hierarchy (incomplete header), still trying to import ignoring dlistCount")
             self.dlistCount = 1
-        self.name = prefix + ("sk_%08X" % offset)
+        self.name = f"{prefix}sk_{offset:08X}"
         self.offset = offset
         seg, offset = splitOffset(offset)
         limbIndex_offset = unpack_from(">L", segment[seg], offset)[0]
         if not validOffset(segment, limbIndex_offset):
-            log.error("        ERROR:  Limb index table 0x%08X out of range" % limbIndex_offset)
+            log.error(f"        ERROR:  Limb index table 0x{limbIndex_offset:08X} out of range")
             return False
         limbIndex_seg, limbIndex_offset = splitOffset(limbIndex_offset)
         self.limbCount = segment[seg][offset + 4]
@@ -618,7 +613,7 @@ class Hierarchy:
             if validOffset(segment, limb_offset + 12):
                 limb.read(segment, limb_offset, i, self.limbCount, scale_factor)
             else:
-                log.error("        ERROR:  Limb 0x%02X offset 0x%08X out of range" % (i, limb_offset))[0]
+                log.error(f"        ERROR:  Limb 0x{i:02X} offset 0x{limb_offset:08X} out of range")
         self.limb[0].pos = Vector([0, 0, 0])
         self.initLimbs(0x00)
         return True
@@ -626,27 +621,27 @@ class Hierarchy:
     def create(self):
         rx, ry, rz = 90,0,0
         if (bpy.context.active_object):
-            bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
+            bpy.ops.object.mode_set(mode="OBJECT", toggle=False)
         for i in bpy.context.selected_objects:
             i.select_set(False)
-        self.armature = bpy.data.objects.new(self.name, bpy.data.armatures.new("%s_armature" % self.name))
+        self.armature = bpy.data.objects.new(self.name, bpy.data.armatures.new(f"{self.name}_armature"))
         self.armature.show_in_front = True
-        self.armature.data.display_type = 'STICK'
+        self.armature.data.display_type = "STICK"
         bpy.context.scene.collection.objects.link(self.armature)
         bpy.context.view_layer.objects.active = self.armature
-        bpy.ops.object.mode_set(mode='EDIT', toggle=False)
+        bpy.ops.object.mode_set(mode="EDIT", toggle=False)
         for i in range(self.limbCount):
-            bone = self.armature.data.edit_bones.new("limb_%02i" % i)
+            bone = self.armature.data.edit_bones.new(f"limb_{i:02}")
             bone.use_deform = True
             bone.head = self.limb[i].pos
 
         for i in range(self.limbCount):
-            bone = self.armature.data.edit_bones["limb_%02i" % i]
+            bone = self.armature.data.edit_bones[f"limb_{i:02}"]
             if (self.limb[i].parent != -1):
-                bone.parent = self.armature.data.edit_bones["limb_%02i" % self.limb[i].parent]
+                bone.parent = self.armature.data.edit_bones[f"limb_{self.limb[i].parent:02}"]
                 bone.use_connect = False
             bone.tail = bone.head + Vector([0, 0, 0.0001])
-        bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.ops.object.mode_set(mode="OBJECT")
 
     def initLimbs(self, i):
         if (self.limb[i].child > -1 and self.limb[i].child != i):
@@ -701,9 +696,9 @@ class F3DZEX:
         self.resetCombiner()
 
     def loaddisplaylists(self, path):
-        log = getLogger('F3DZEX.loaddisplaylists')
+        log = getLogger("F3DZEX.loaddisplaylists")
         if not os.path.isfile(path):
-            log.info('Did not find %s (use to manually set offsets of display lists to import)', path)
+            log.info(f"Did not find {path} (use to manually set offsets of display lists to import)")
             self.displaylists = []
             return
         try:
@@ -712,19 +707,19 @@ class F3DZEX:
             file.close()
             log.info("Loaded the display list list successfully!")
         except:
-            log.exception('Could not read displaylists.txt')
+            log.exception("Could not read displaylists.txt")
 
     def loadSegment(self, seg, path):
         try:
-            file = open(path, 'rb')
+            file = open(path, "rb")
             self.segment[seg] = file.read()
             file.close()
         except:
-            getLogger('F3DZEX.loadSegment').error('Could not load segment 0x%02X data from %s' % (seg, path))
+            getLogger("F3DZEX.loadSegment").error(f"Could not load segment 0x{seg:02X} data from {path}")
             pass
 
     def locateHierarchies(self):
-        log = getLogger('F3DZEX.locateHierarchies')
+        log = getLogger("F3DZEX.locateHierarchies")
         data = self.segment[0x06]
         for i in range(0, len(data)-11, 4):
             # test for header "bboooooo pp000000 xx000000": if segment bb=0x06 and offset oooooo 4-aligned and not zero parts (pp!=0)
@@ -742,15 +737,15 @@ class F3DZEX:
                             j += 4
                         if (j == i):
                             j |= 0x06000000
-                            log.info("    hierarchy found at 0x%08X", j)
+                            log.info(f"    hierarchy found at 0x{j:08X}")
                             h = Hierarchy()
                             if h.read(self.segment, j, self.config["scale_factor"], prefix=self.prefix):
                                 self.hierarchy.append(h)
                             else:
-                                log.warning('Skipping hierarchy at 0x%08X', j)
+                                log.warning(f"Skipping hierarchy at 0x{j:08X}")
 
     def locateAnimations(self):
-        log = getLogger('F3DZEX.locateAnimations')
+        log = getLogger("F3DZEX.locateAnimations")
         data = self.segment[0x06]
         self.animation = []
         self.offsetAnims = []
@@ -767,7 +762,7 @@ class F3DZEX:
                  (data[i+8] == 0x06) and
                  (((data[i+9] << 16)|(data[i+10] << 8)|data[i+11]) < len(data)) and
                  (data[i+14] == 0) and (data[i+15] == 0)):
-                log.info("          Anims found at %08X Frames: %d", i, data[i+1] & 0x00FFFFFF)
+                log.info(f"          Anims found at {i:08X} Frames: {data[i+1] & 0x00FFFFFF}")
                 self.animation.append(i)
                 self.offsetAnims.append(i)
                 self.offsetAnims[self.animTotal] = (0x06 << 24) | i
@@ -775,10 +770,10 @@ class F3DZEX:
                 self.durationAnims.append(data[i+1] & 0x00FFFFFF)
                 self.animTotal += 1
         if(self.animTotal > 0):
-                log.info("          Total Anims                         : %d", self.animTotal)
+                log.info(f"          Total Anims                         : {self.animTotal}")
 
     def locateExternAnimations(self):
-        log = getLogger('F3DZEX.locateExternAnimations')
+        log = getLogger("F3DZEX.locateExternAnimations")
         data = self.segment[0x0F]
         self.animation = []
         self.offsetAnims = []
@@ -790,16 +785,16 @@ class F3DZEX:
                  (data[i+8] == 0x06) and
                  (((data[i+9] << 16)|(data[i+10] << 8)|data[i+11]) < len(data)) and
                  (data[i+14] == 0) and (data[i+15] == 0)):
-                log.info("          Ext Anims found at %08X" % i, "Frames:", data[i+1] & 0x00FFFFFF)
+                log.info(f"          Ext Anims found at {i:08X} Frames: {data[i+1] & 0x00FFFFFF}")
                 self.animation.append(i)
                 self.offsetAnims.append(i)
                 self.offsetAnims[self.animTotal] = (0x0F << 24) | i
                 self.animTotal += 1
         if(self.animTotal > 0):
-            log.info("        Total Anims                   :", self.animTotal)
+            log.info(f"        Total Anims                   : {self.animTotal}")
 
     def locateLinkAnimations(self, anim_to_play):
-        log = getLogger('F3DZEX.locateLinkAnimations')
+        log = getLogger("F3DZEX.locateLinkAnimations")
         data = self.segment[0x04]
         self.animation = []
         self.offsetAnims = []
@@ -814,7 +809,7 @@ class F3DZEX:
                     self.offsetAnims.append(self.animTotal)
                     self.offsetAnims[self.animTotal]     = unpack_from(">L", data, i + 4)[0]
                     self.animFrames[self.animTotal] = unpack_from(">h", data, i)[0]
-                    log.debug('- Animation #%d offset: %07X frames: %d', self.animTotal+1, self.offsetAnims[self.animTotal], self.animFrames[self.animTotal])
+                    log.debug(f"- Animation #{self.animTotal+1} offset: {self.offsetAnims[self.animTotal]:07X} frames: {self.animFrames[self.animTotal]}")
             else:
                 for i in range(0x2310, 0x34F8, 8):
                     self.animTotal += 1
@@ -823,29 +818,27 @@ class F3DZEX:
                     self.offsetAnims.append(self.animTotal)
                     self.offsetAnims[self.animTotal]     = unpack_from(">L", data, i + 4)[0]
                     self.animFrames[self.animTotal] = unpack_from(">h", data, i)[0]
-                    log.debug('- Animation #%d offset: %07X frames: %d', self.animTotal+1, self.offsetAnims[self.animTotal], self.animFrames[self.animTotal])
+                    log.debug(f"- Animation #{self.animTotal+1} offset: {self.offsetAnims[self.animTotal]:07X} frames: {self.animFrames[self.animTotal]}")
         log.info("         Link has come to town!!!!")
         if ( (len( self.segment[0x07] ) > 0) and (self.animTotal > 0)):
             self.buildLinkAnimations(self.hierarchy[0], 0, anim_to_play)
 
-    def importJFIF(self, data, initPropsOffset, name_format='bg_%08X'):
-        log = getLogger('F3DZEX.importJFIF')
+    def importJFIF(self, data, initPropsOffset, name_format="bg_%08X"):
+        log = getLogger("F3DZEX.importJFIF")
         (   imagePtr,
             unknown, unknown2,
             background_width, background_height,
             imageFmt, imageSiz, imagePal, imageFlip
-        ) = struct.unpack_from('>IIiHHBBHH', data, initPropsOffset)
+        ) = struct.unpack_from(">IIiHHBBHH", data, initPropsOffset)
         t = Tile()
         t.texFmt = imageFmt
         t.texSiz = imageSiz
         log.debug(
-            'JFIF background image init properties\n'
-            'imagePtr=0x%X size=%dx%d fmt=%d, siz=%d (%s) imagePal=%d imageFlip=%d',
-            imagePtr, background_width, background_height,
-            imageFmt, imageSiz, t.getFormatName(), imagePal, imageFlip
+            "JFIF background image init properties\n"
+            f"imagePtr=0x{imagePtr:X} size={background_width}x{background_height} fmt={imageFmt}, siz={imageSiz} ({t.getFormatName()}) imagePal={imagePal} imageFlip={imageFlip}"
         )
         if imagePtr >> 24 != 0x03:
-            log.error('Skipping JFIF background image, pointer 0x%08X is not in segment 0x03', imagePtr)
+            log.error(f"Skipping JFIF background image, pointer 0x{imagePtr:08X} is not in segment 0x03")
             return False
         jfifDataStart = imagePtr & 0xFFFFFF
         # read header just for sanity checks
@@ -856,34 +849,34 @@ class F3DZEX:
             dens, densx, densy,
             thumbnail_width, thumbnail_height,
             marker_end_header
-        ) = struct.unpack_from('>HHHIBHBHHBBH', data, jfifDataStart)
+        ) = struct.unpack_from(">HHHIBHBHHBBH", data, jfifDataStart)
         badJfif = []
         if marker_begin != 0xFFD8:
-            badJfif.append('Expected marker_begin=0xFFD8 instead of 0x%04X' % marker_begin)
+            badJfif.append(f"Expected marker_begin=0xFFD8 instead of 0x{marker_begin:04X}")
         if marker_begin_header != 0xFFE0:
-            badJfif.append('Expected marker_begin_header=0xFFE0 instead of 0x%04X' % marker_begin_header)
+            badJfif.append(f"Expected marker_begin_header=0xFFE0 instead of 0x{marker_begin_header:04X}")
         if header_length != 16:
-            badJfif.append('Expected header_length=16 instead of %d=0x%04X' % (header_length, header_length))
+            badJfif.append(f"Expected header_length=16 instead of {header_length}=0x{header_length:04X}")
         if jfif != 0x4A464946: # JFIF
-            badJfif.append('Expected jfif=0x4A464946="JFIF" instead of 0x%08X' % jfif)
+            badJfif.append(f'Expected jfif=0x4A464946="JFIF" instead of 0x{jfif:08X}')
         if null != 0:
-            badJfif.append('Expected null=0 instead of 0x%02X' % null)
+            badJfif.append(f"Expected null=0 instead of 0x{null:02X}")
         if version != 0x0101:
-            badJfif.append('Expected version=0x0101 instead of 0x%04X' % version)
+            badJfif.append(f"Expected version=0x0101 instead of 0x{version:04X}")
         if dens != 0:
-            badJfif.append('Expected dens=0 instead of %d=0x%02X' % (dens, dens))
+            badJfif.append(f"Expected dens=0 instead of {dens}=0x{dens:02X}")
         if densx != 1:
-            badJfif.append('Expected densx=1 instead of %d=0x%04X' % (densx, densx))
+            badJfif.append(f"Expected densx=1 instead of {densx}=0x{densx:04X}")
         if densy != 1:
-            badJfif.append('Expected densy=1 instead of %d=0x%04X' % (densy, densy))
+            badJfif.append(f"Expected densy=1 instead of {densy}=0x{densy:04X}")
         if thumbnail_width != 0:
-            badJfif.append('Expected thumbnail_width=0 instead of %d=0x%02X' % (thumbnail_width, thumbnail_width))
+            badJfif.append(f"Expected thumbnail_width=0 instead of {thumbnail_width}=0x{thumbnail_width:02X}")
         if thumbnail_height != 0:
-            badJfif.append('Expected thumbnail_height=0 instead of %d=0x%02X' % (thumbnail_height, thumbnail_height))
+            badJfif.append(f"Expected thumbnail_height=0 instead of {thumbnail_height}=0x{thumbnail_height:02X}")
         if marker_end_header != 0xFFDB:
-            badJfif.append('Expected marker_end_header=0xFFDB instead of 0x%04X' % marker_end_header)
+            badJfif.append(f"Expected marker_end_header=0xFFDB instead of 0x{marker_end_header:04X}")
         if badJfif:
-            log.error('Bad JFIF format for background image at 0x%X:', jfifDataStart)
+            log.error(f"Bad JFIF format for background image at 0x{jfifDataStart:X}:")
             for badJfifMessage in badJfif:
                 log.error(badJfifMessage)
             return False
@@ -894,21 +887,21 @@ class F3DZEX:
                 jfifData = data[jfifDataStart:i+2]
                 break
         if jfifData is None:
-            log.error('Did not find end marker 0xFFD9 in background image at 0x%X', jfifDataStart)
+            log.error(f"Did not find end marker 0xFFD9 in background image at 0x{jfifDataStart:X}")
             return False
         try:
-            os.mkdir(self.config["fpath"] + '/textures')
+            os.mkdir(f"{self.config['fpath']}/textures")
         except FileExistsError:
             pass
         except:
-            log.exception('Could not create textures directory %s' % (self.config["fpath"] + '/textures'))
+            log.exception(f"Could not create textures directory {self.config['fpath']}/textures")
             pass
-        jfifPath = '%s/textures/jfif_%s.jfif' % (self.config["fpath"], (name_format % jfifDataStart))
-        with open(jfifPath, 'wb') as f:
+        jfifPath = f"{self.config['fpath']}/textures/jfif_{name_format % jfifDataStart}.jfif"
+        with open(jfifPath, "wb") as f:
             f.write(jfifData)
-        log.info('Copied jfif image to %s', jfifPath)
+        log.info(f"Copied jfif image to {jfifPath}")
         jfifImage = load_image(jfifPath)
-        me = bpy.data.meshes.new(self.prefix + (name_format % jfifDataStart))
+        me = bpy.data.meshes.new(f"{self.prefix}{name_format % jfifDataStart}")
         me.vertices.add(4)
         cos = (
             (background_width, 0),
@@ -925,41 +918,41 @@ class F3DZEX:
         del bmesh
         me.uv_textures.new().data[0].image = jfifImage
         ob = bpy.data.objects.new(self.prefix + (name_format % jfifDataStart), me)
-        ob.location.z = max(max(v.co.z for v in obj.data.vertices) for obj in bpy.context.scene.objects if obj.type == 'MESH')
+        ob.location.z = max(max(v.co.z for v in obj.data.vertices) for obj in bpy.context.scene.objects if obj.type == "MESH")
         bpy.context.scene.collection.objects.link(ob)
         return ob
 
     def importMap(self):
-        if self.config["import_strategy"] == 'NO_DETECTION':
+        if self.config["import_strategy"] == "NO_DETECTION":
             self.importMapWithHeaders()
-        elif self.config["import_strategy"] == 'BRUTEFORCE':
+        elif self.config["import_strategy"] == "BRUTEFORCE":
             self.searchAndImport(3, False)
-        elif self.config["import_strategy"] == 'SMART':
+        elif self.config["import_strategy"] == "SMART":
             self.importMapWithHeaders()
             self.searchAndImport(3, True)
-        elif self.config["import_strategy"] == 'TRY_EVERYTHING':
+        elif self.config["import_strategy"] == "TRY_EVERYTHING":
             self.importMapWithHeaders()
             self.searchAndImport(3, False)
 
     def importMapWithHeaders(self):
-        log = getLogger('F3DZEX.importMapWithHeaders')
+        log = getLogger("F3DZEX.importMapWithHeaders")
         data = self.segment[0x03]
         for i in range(0, len(data), 8):
             if data[i] == 0x0A:
                 mapHeaderSegment = data[i+4]
                 if mapHeaderSegment != 0x03:
-                    log.warning('Skipping map header located in segment 0x%02X, referenced by command at 0x%X', mapHeaderSegment, i)
+                    log.warning(f"Skipping map header located in segment 0x{mapHeaderSegment:02X}, referenced by command at 0x{i:X}")
                     continue
                 # mesh header offset 
                 mho = (data[i+5] << 16) | (data[i+6] << 8) | data[i+7]
                 if not mho < len(data):
-                    log.error('Mesh header offset 0x%X is past the room file size, skipping', mho)
+                    log.error(f"Mesh header offset 0x{mho:X} is past the room file size, skipping")
                     continue
                 type = data[mho]
-                log.info("            Mesh Type: %d" % type)
+                log.info(f"            Mesh Type: {type}")
                 if type == 0:
                     if mho + 12 > len(data):
-                        log.error('Mesh header at 0x%X of type %d extends past the room file size, skipping', mho, type)
+                        log.error(f"Mesh header at 0x{mho:X} of type {type} extends past the room file size, skipping")
                         continue
                     count = data[mho+1]
                     startSeg = data[mho+4]
@@ -967,21 +960,21 @@ class F3DZEX:
                     endSeg = data[mho+8]
                     end = (data[mho+9] << 16) | (data[mho+10] << 8) | data[mho+11]
                     if startSeg != endSeg:
-                        log.error('Mesh header at 0x%X of type %d has start and end in different segments 0x%02X and 0x%02X, skipping', mho, type, startSeg, endSeg)
+                        log.error(f"Mesh header at 0x{mho:X} of type {type} has start and end in different segments 0x{startSeg:02X} and 0x{endSeg:02X}, skipping")
                         continue
                     if startSeg != 0x03:
-                        log.error('Skipping mesh header at 0x%X of type %d: entries are in segment 0x%02X', mho, type, startSeg)
+                        log.error(f"Skipping mesh header at 0x{mho:X} of type {type}: entries are in segment 0x{startSeg:02X}")
                         continue
-                    log.info('Reading %d display lists from 0x%X to 0x%X', count, start, end)
+                    log.info(f"Reading {count} display lists from 0x{start:X} to 0x{end:X}")
                     for j in range(start, end, 8):
                         opa = unpack_from(">L", data, j)[0]
                         if opa:
                             self.use_transparency = False
-                            self.buildDisplayList(None, [None], opa, mesh_name_format='%s_opa')
+                            self.buildDisplayList(None, [None], opa, mesh_name_format="%s_opa")
                         xlu = unpack_from(">L", data, j+4)[0]
                         if xlu:
                             self.use_transparency = True
-                            self.buildDisplayList(None, [None], xlu, mesh_name_format='%s_xlu')
+                            self.buildDisplayList(None, [None], xlu, mesh_name_format="%s_xlu")
                 elif type == 1:
                     format = data[mho+1]
                     entrySeg = data[mho+4]
@@ -990,16 +983,16 @@ class F3DZEX:
                         opa = unpack_from(">L", data, entry)[0]
                         if opa:
                             self.use_transparency = False
-                            self.buildDisplayList(None, [None], opa, mesh_name_format='%s_opa')
+                            self.buildDisplayList(None, [None], opa, mesh_name_format="%s_opa")
                         xlu = unpack_from(">L", data, entry+4)[0]
                         if xlu:
                             self.use_transparency = True
-                            self.buildDisplayList(None, [None], xlu, mesh_name_format='%s_xlu')
+                            self.buildDisplayList(None, [None], xlu, mesh_name_format="%s_xlu")
                     else:
-                        log.error('Skipping mesh header at 0x%X of type %d: entry is in segment 0x%02X', mho, type, entrySeg)
+                        log.error(f"Skipping mesh header at 0x{mho:X} of type {type}: entry is in segment 0x{entrySeg:02X}")
                     if format == 1:
                         if not self.importJFIF(data, mho + 8):
-                            log.error('Failed to import jfif background image, mesh header at 0x%X of type 1 format 1', mho)
+                            log.error(f"Failed to import jfif background image, mesh header at 0x{mho:X} of type 1 format 1")
                     elif format == 2:
                         background_count = data[mho + 8]
                         backgrounds_array = unpack_from(">L", data, mho + 0xC)[0]
@@ -1007,24 +1000,24 @@ class F3DZEX:
                             backgrounds_array &= 0xFFFFFF
                             for i in range(background_count):
                                 bg_record_offset = backgrounds_array + i * 0x1C
-                                unk82, bgid = struct.unpack_from('>HB', data, bg_record_offset)
+                                unk82, bgid = struct.unpack_from(">HB", data, bg_record_offset)
                                 if unk82 != 0x0082:
-                                    log.error('Skipping JFIF: mesh header at 0x%X type 1 format 2 background record entry #%d at 0x%X expected unk82=0x0082, not 0x%04X', mho, i, bg_record_offset, unk82)
+                                    log.error(f"Skipping JFIF: mesh header at 0x{mho:X} type 1 format 2 background record entry #{i} at 0x{bg_record_offset:X} expected unk82=0x0082, not 0x{unk82:04X}")
                                     continue
                                 ob = self.importJFIF(
                                     data, bg_record_offset + 4,
-                                    name_format='bg_%d_%s' % (i, '%08X')
+                                    name_format=f"bg_{i}_%08X"
                                 )
                                 ob.location.y -= self.config["scale_factor"] * 100 * i
                                 if not ob:
-                                    log.error('Failed to import jfif background image from record entry #%d at 0x%X, mesh header at 0x%X of type 1 format 2', i, bg_record_offset, mho)
+                                    log.error(f"Failed to import jfif background image from record entry #{i} at 0x{bg_record_offset:X}, mesh header at 0x{mho:X} of type 1 format 2")
                         else:
-                            log.error('Skipping mesh header at 0x%X of type 1 format 2: backgrounds_array=0x%08X is not in segment 0x03', mho, backgrounds_array)
+                            log.error(f"Skipping mesh header at 0x{mho:X} of type 1 format 2: backgrounds_array=0x{backgrounds_array:08X} is not in segment 0x03")
                     else:
-                        log.error('Unknown format %d for mesh type 1 in mesh header at 0x%X', format, mho)
+                        log.error(f"Unknown format {format} for mesh type 1 in mesh header at 0x{mho:X}")
                 elif type == 2:
                     if mho + 12 > len(data):
-                        log.error('Mesh header at 0x%X of type %d extends past the room file size, skipping', mho, type)
+                        log.error(f"Mesh header at 0x{mho:X} of type {type} extends past the room file size, skipping")
                         continue
                     count = data[mho+1]
                     startSeg = data[mho+4]
@@ -1032,73 +1025,73 @@ class F3DZEX:
                     endSeg = data[mho+8]
                     end = (data[mho+9] << 16) | (data[mho+10] << 8) | data[mho+11]
                     if startSeg != endSeg:
-                        log.error('Mesh header at 0x%X of type %d has start and end in different segments 0x%02X and 0x%02X, skipping', mho, type, startSeg, endSeg)
+                        log.error(f"Mesh header at 0x{mho:X} of type {type} has start and end in different segments 0x{startSeg:02X} and 0x{endSeg:02X}, skipping")
                         continue
                     if startSeg != 0x03:
-                        log.error('Skipping mesh header at 0x%X of type %d: entries are in segment 0x%02X', mho, type, startSeg)
+                        log.error(f"Skipping mesh header at 0x{mho:X} of type {type}: entries are in segment 0x{startSeg:02X}")
                         continue
-                    log.info('Reading %d display lists from 0x%X to 0x%X', count, start, end)
+                    log.info(f"Reading {count} display lists from 0x{start:X} to 0x{end:X}")
                     for j in range(start, end, 16):
                         opa = unpack_from(">L", data, j+8)[0]
                         if opa:
                             self.use_transparency = False
-                            self.buildDisplayList(None, [None], opa, mesh_name_format='%s_opa')
+                            self.buildDisplayList(None, [None], opa, mesh_name_format="%s_opa")
                         xlu = unpack_from(">L", data, j+12)[0]
                         if xlu:
                             self.use_transparency = True
-                            self.buildDisplayList(None, [None], xlu, mesh_name_format='%s_xlu')
+                            self.buildDisplayList(None, [None], xlu, mesh_name_format="%s_xlu")
                 else:
-                    log.error('Unknown mesh type %d in mesh header at 0x%X', type, mho)
+                    log.error(f"Unknown mesh type {type} in mesh header at 0x{mho:X}")
             elif (data[i] == 0x14):
                 return
-        log.warning('Map headers ended unexpectedly')
+        log.warning("Map headers ended unexpectedly")
 
     def importObj(self):
-        log = getLogger('F3DZEX.importObj')
+        log = getLogger("F3DZEX.importObj")
         log.info("Locating hierarchies...")
         self.locateHierarchies()
 
 
         if len(self.displaylists) != 0:
-            log.info('Importing display lists defined in displaylists.txt')
+            log.info("Importing display lists defined in displaylists.txt")
             for offsetStr in self.displaylists:
-                while offsetStr and offsetStr[-1] in ('\r','\n'):
+                while offsetStr and offsetStr[-1] in ("\r","\n"):
                     offsetStr = offsetStr[:-1]
                 if offsetStr.isdecimal():
-                    log.warning('Reading offset %s as hexadecimal, NOT decimal', offsetStr)
-                if len(offsetStr) > 2 and offsetStr[:2] == '0x':
+                    log.warning(f"Reading offset {offsetStr} as hexadecimal, NOT decimal")
+                if len(offsetStr) > 2 and offsetStr[:2] == "0x":
                     offsetStr = offsetStr[2:]
                 try:
                     offset = int(offsetStr, 16)
                 except ValueError:
-                    log.error('Could not parse %s from displaylists.txt as hexadecimal, skipping entry', offsetStr)
+                    log.error(f"Could not parse {offsetStr} from displaylists.txt as hexadecimal, skipping entry")
                     continue
                 if (offset & 0xFF000000) == 0:
-                    log.info('Defaulting segment for offset 0x%X to 6', offset)
+                    log.info(f"Defaulting segment for offset 0x{offset:X} to 6")
                     offset |= 0x06000000
-                log.info('Importing display list 0x%08X (from displaylists.txt)', offset)
+                log.info(f"Importing display list 0x{offset:08X} (from displaylists.txt)")
                 self.buildDisplayList(None, 0, offset)
 
         anim_to_play = 1 if self.config["load_animations"] else 0
 
         for hierarchy in self.hierarchy:
-            log.info("Building hierarchy '%s'..." % hierarchy.name)
+            log.info(f"Building hierarchy '{hierarchy.name}'...")
             hierarchy.create()
             for i in range(hierarchy.limbCount):
                 limb = hierarchy.limb[i]
                 if limb.near != 0:
                     if validOffset(self.segment, limb.near):
-                        log.info("    0x%02X : building display lists..." % i)
+                        log.info(f"    0x{i:02X} : building display lists...")
                         self.resetCombiner()
                         self.buildDisplayList(hierarchy, limb, limb.near)
                     else:
-                        log.info("    0x%02X : out of range" % i)
+                        log.info(f"    0x{i:02X} : out of range")
                 else:
-                    log.info("    0x%02X : n/a" % i)
+                    log.info(f"    0x{i:02X} : n/a")
         if len(self.hierarchy) > 0:
             bpy.context.view_layer.objects.active = self.hierarchy[0].armature
             self.hierarchy[0].armature.select_set(True)
-            bpy.ops.object.mode_set(mode='POSE', toggle=False)
+            bpy.ops.object.mode_set(mode="POSE", toggle=False)
             if (anim_to_play > 0):
                 bpy.context.scene.frame_end = 1
                 if(self.config["external_animes"] and len(self.segment[0x0F]) > 0):
@@ -1116,11 +1109,11 @@ class F3DZEX:
                     # this is useful for iron knuckles and anything with several hierarchies, although an unedited iron kunckles zobj won't work
                     hierarchy = max(self.hierarchy, key=lambda h:h.limbCount)
                     armature = hierarchy.armature
-                    log.info('Building animations using armature %s in %s', armature.data.name, armature.name)
+                    log.info(f"Building animations using armature {armature.data.name} in {armature.name}")
                     for i in range(len(self.animation)):
                         anim_to_play = i + 1
-                        log.info("   Loading animation %d/%d 0x%08X", anim_to_play, len(self.animation), self.offsetAnims[anim_to_play-1])
-                        action = bpy.data.actions.new(self.prefix + ('anim%d_%d' % (anim_to_play, self.durationAnims[i])))
+                        log.info(f"   Loading animation {anim_to_play}/{len(self.animation)} 0x{self.offsetAnims[anim_to_play-1]:08X}")
+                        action = bpy.data.actions.new(f"{self.prefix}anim{anim_to_play}_{self.durationAnims[i]}")
                         # not sure what users an action is supposed to have, or what it should be linked to
                         action.use_fake_user = True
                         armature.animation_data.action = action
@@ -1133,23 +1126,21 @@ class F3DZEX:
             else:
                 log.info("    Load anims OFF.")
 
-        if self.config["import_strategy"] == 'NO_DETECTION':
+        if self.config["import_strategy"] == "NO_DETECTION":
             pass
-        elif self.config["import_strategy"] == 'BRUTEFORCE':
+        elif self.config["import_strategy"] == "BRUTEFORCE":
             self.searchAndImport(6, False)
-        elif self.config["import_strategy"] == 'SMART':
+        elif self.config["import_strategy"] == "SMART":
             self.searchAndImport(6, True)
-        elif self.config["import_strategy"] == 'TRY_EVERYTHING':
+        elif self.config["import_strategy"] == "TRY_EVERYTHING":
             self.searchAndImport(6, False)
 
     def searchAndImport(self, segment, skipAlreadyRead):
-        log = getLogger('F3DZEX.searchAndImport')
+        log = getLogger("F3DZEX.searchAndImport")
         data = self.segment[segment]
         self.use_transparency = self.config["detected_display_lists_use_transparency"]
-        log.info(
-            'Searching for %s display lists in segment 0x%02X (materials with transparency: %s)',
-            'non-read' if skipAlreadyRead else 'any', segment, 'yes' if self.use_transparency else 'no')
-        log.warning('If the imported geometry is weird/wrong, consider using displaylists.txt to manually define the display lists to import!')
+        log.info(f"Searching for {'non-read' if skipAlreadyRead else 'any'} display lists in segment 0x{segment:02X} (materials with transparency: {'yes' if self.use_transparency else 'no'}")
+        log.warning(f"If the imported geometry is weird/wrong, consider using displaylists.txt to manually define the display lists to import!")
         validOpcodesStartIndex = 0
         validOpcodesSkipped = set()
         for i in range(0, len(data), 8):
@@ -1174,16 +1165,16 @@ class F3DZEX:
             # if this command means "end of dlist"
             if (opcode == 0xDE and data[i+1] != 0) or opcode == 0xDF:
                 # build starting at earliest valid opcode
-                log.debug('Found opcode 0x%X at 0x%X, building display list from 0x%X', opcode, i, validOpcodesStartIndex)
+                log.debug(f"Found opcode 0x{opcode:X} at 0x{i:X}, building display list from 0x{validOpcodesStartIndex:X}")
                 self.buildDisplayList(
                     None, [None], (segment << 24) | validOpcodesStartIndex,
-                    mesh_name_format = '%s_detect',
+                    mesh_name_format = "%s_detect",
                     skipAlreadyRead = skipAlreadyRead,
                     extraLenient = True
                 )
                 validOpcodesStartIndex = None
         if validOpcodesSkipped:
-            log.info('Valid opcodes %s considered invalid because unimplemented (meaning rare)', ','.join('0x%02X' % opcode for opcode in sorted(validOpcodesSkipped)))
+            log.info(f"Valid opcodes {','.join(f'0x{opcode:02X}' for opcode in sorted(validOpcodesSkipped))} considered invalid because unimplemented (meaning rare)")
 
     def resetCombiner(self):
         self.primColor = Vector([1.0, 1.0, 1.0, 1.0])
@@ -1192,27 +1183,27 @@ class F3DZEX:
         self.shadeColor = Vector([1.0, 1.0, 1.0])
 
     def checkUseNormals(self):
-        return self.config["vertex_mode"] == 'NORMALS' or (self.config["vertex_mode"] == 'AUTO' and 'G_LIGHTING' in self.geometryModeFlags)
+        return self.config["vertex_mode"] == "NORMALS" or (self.config["vertex_mode"] == "AUTO" and "G_LIGHTING" in self.geometryModeFlags)
 
     def getCombinerColor(self):
         def multiply_color(v1, v2):
             return Vector(x * y for x, y in zip(v1, v2))
         cc = Vector([1.0, 1.0, 1.0, 1.0])
-        # TODO: these have an effect even if vertexMode == 'NONE' ?
+        # TODO: these have an effect even if vertexMode == "NONE" ?
         if self.config["enable_prim_color"]:
             cc = multiply_color(cc, self.primColor)
         if self.config["enable_env_color"]:
             cc = multiply_color(cc, self.envColor)
         # TODO: assume G_LIGHTING means normals if set, and colors if clear, but G_SHADE may play a role too?
-        if self.config["vertex_mode"] == 'COLORS' or (self.config["vertex_mode"] == 'AUTO' and 'G_LIGHTING' not in self.geometryModeFlags):
+        if self.config["vertex_mode"] == "COLORS" or (self.config["vertex_mode"] == "AUTO" and "G_LIGHTING" not in self.geometryModeFlags):
             cc = multiply_color(cc, self.vertexColor.to_4d())
         elif self.checkUseNormals():
             cc = multiply_color(cc, self.shadeColor.to_4d())
         
         return cc
 
-    def buildDisplayList(self, hierarchy, limb, offset, mesh_name_format='%s', skipAlreadyRead=False, extraLenient=False):
-        log = getLogger('F3DZEX.buildDisplayList')
+    def buildDisplayList(self, hierarchy, limb, offset, mesh_name_format="%s", skipAlreadyRead=False, extraLenient=False):
+        log = getLogger("F3DZEX.buildDisplayList")
         segment = offset >> 24
         segmentMask = segment << 24
         data = self.segment[segment]
@@ -1220,16 +1211,16 @@ class F3DZEX:
         startOffset = offset & 0x00FFFFFF
         endOffset = len(data)
         if skipAlreadyRead:
-            log.trace('is 0x%X in %r ?', startOffset, self.alreadyRead[segment])
+            log.trace(f"is 0x{startOffset:X} in {self.alreadyRead[segment]} ?")
             for fromOffset,toOffset in self.alreadyRead[segment]:
                 if fromOffset <= startOffset and startOffset <= toOffset:
-                    log.debug('Skipping already read dlist at 0x%X', startOffset)
+                    log.debug(f"Skipping already read dlist at 0x{startOffset:X}")
                     return
                 if startOffset <= fromOffset:
                     if endOffset > fromOffset:
                         endOffset = fromOffset
-                        log.debug('Shortening dlist to end at most at 0x%X, at which point it was read already', endOffset)
-            log.trace('no it is not')
+                        log.debug(f"Shortening dlist to end at most at 0x{endOffset:X}, at which point it was read already")
+            log.trace("no it is not")
 
         def buildRec(offset):
             self.buildDisplayList(hierarchy, limb, offset, mesh_name_format=mesh_name_format, skipAlreadyRead=skipAlreadyRead)
@@ -1242,7 +1233,7 @@ class F3DZEX:
         else:
             matrix = [None]
 
-        log.debug('Reading dlists from 0x%08X', segmentMask | startOffset)
+        log.debug(f"Reading dlists from 0x{segmentMask | startOffset:08X}")
         for i in range(startOffset, endOffset, 8):
             w0 = unpack_from(">L", data, i)[0]
             w1 = unpack_from(">L", data, i + 4)[0]
@@ -1274,12 +1265,12 @@ class F3DZEX:
                         self.vbuf[index].uv.y = float(unpack_from(">h", data, i + 6)[0])
                 except IndexError:
                     if not extraLenient:
-                        log.exception('Bad vertex indices in 0x02 at 0x%X %08X %08X', i, w0, w1)
+                        log.exception(f"Bad vertex indices in 0x02 at 0x{i:X} {w0:08X} {w1:08X}")
             elif data[i] == 0x05 or data[i] == 0x06:
                 if has_tex:
                     material = None
                     for j in range(len(self.material)):
-                        if self.material[j].name == "mtl_%08X" % self.tile[0].data:
+                        if self.material[j].name == f"mtl_{self.tile[0].data:08X}":
                             material = self.material[j]
                             break
                     if material == None:
@@ -1301,7 +1292,7 @@ class F3DZEX:
                 vi1, vi2 = -1, -1
                 if not self.config["import_textures"]:
                     material = None
-                nbefore_props = ['verts','uvs','colors','vgroups','faces','faces_use_smooth','normals']
+                nbefore_props = ["verts","uvs","colors","vgroups","faces","faces_use_smooth","normals"]
                 nbefore_lengths = [(nbefore_prop, len(getattr(mesh, nbefore_prop))) for nbefore_prop in nbefore_props]
                 # a1 a2 a3 are microcode values
                 def addTri(a1, a2, a3):
@@ -1330,16 +1321,16 @@ class F3DZEX:
                         mesh.uvs.append((self.tile[0].offset.x + v.uv.x * self.tile[0].ratio.x, self.tile[0].offset.y - v.uv.y * self.tile[0].ratio.y))
                         if hierarchy:
                             if v.limb:
-                                limb_name = 'limb_%02i' % v.limb.index
+                                limb_name = f"limb_{v.limb.index:02}"
                                 if not (limb_name in mesh.vgroups):
                                     mesh.vgroups[limb_name] = []
                                 mesh.vgroups[limb_name].append(vi)
                         face_normals.append((vi, (v.normal.x, v.normal.y, v.normal.z)))
                     mesh.faces.append(tuple(verts_index))
-                    mesh.faces_use_smooth.append('G_SHADE' in self.geometryModeFlags and 'G_SHADING_SMOOTH' in self.geometryModeFlags)
+                    mesh.faces_use_smooth.append("G_SHADE" in self.geometryModeFlags and "G_SHADING_SMOOTH" in self.geometryModeFlags)
                     mesh.normals.append(tuple(face_normals))
                     if len(set(verts_index)) < 3 and not extraLenient:
-                        log.warning('Found empty tri! %d %d %d' % tuple(verts_index))
+                        log.warning(f"Found empty tri! {verts_index}")
                     return True
 
                 try:
@@ -1347,7 +1338,7 @@ class F3DZEX:
                     if data[i] == 0x06:
                         revert = revert or not addTri(data[i+4+1], data[i+4+2], data[i+4+3])
                 except:
-                    log.exception('Failed to import vertices and/or their data from 0x%X', i)
+                    log.exception(f"Failed to import vertices and/or their data from 0x{i:X}")
                     revert = True
                 if revert:
                     # revert any change
@@ -1357,7 +1348,7 @@ class F3DZEX:
                             val_prop.pop()
             # G_TEXTURE
             elif data[i] == 0xD7:
-                log.debug('0xD7 G_TEXTURE used, but unimplemented')
+                log.debug("0xD7 G_TEXTURE used, but unimplemented")
                 # FIXME: ?
 #                for i in range(2):
 #                    if ((w1 >> 16) & 0xFFFF) < 0xFFFF:
@@ -1375,7 +1366,7 @@ class F3DZEX:
                     matrix.pop()
             # G_MTX
             elif data[i] == 0xDA and self.config["enable_matrices"]:
-                log.debug('0xDA G_MTX used, but implementation may be faulty')
+                log.debug("0xDA G_MTX used, but implementation may be faulty")
                 # FIXME: this looks super weird, not sure what it's doing either
                 if hierarchy and data[i + 4] == 0x0D:
                     if (data[i + 3] & 0x04) == 0:
@@ -1392,10 +1383,10 @@ class F3DZEX:
                     else:
                         matrix.append(matrix[len(matrix) - 1])
                 elif hierarchy:
-                    log.error("unknown limb %08X %08X" % (w0, w1))
+                    log.error(f"unknown limb {w0:08X} {w1:08X}")
             # G_DL
             elif data[i] == 0xDE:
-                log.trace('G_DE at 0x%X %08X%08X', segmentMask | i, w0, w1)
+                log.trace(f"G_DE at 0x{segmentMask | i:X} {w0:08X}{w1:08X}")
                 #mesh.create(mesh_name_format, hierarchy, offset, self.checkUseNormals())
                 #mesh.__init__()
                 #offset = segmentMask | i
@@ -1407,7 +1398,7 @@ class F3DZEX:
                     return
             # G_ENDDL
             elif data[i] == 0xDF:
-                log.trace('G_ENDDL at 0x%X %08X%08X', segmentMask | i, w0, w1)
+                log.trace(f"G_ENDDL at 0x{segmentMask | i:X} {w0:08X}{w1:08X}")
                 mesh.create(mesh_name_format, hierarchy, offset, self.checkUseNormals(), prefix=self.prefix)
                 self.alreadyRead[segment].append((startOffset,i))
                 return
@@ -1420,7 +1411,7 @@ class F3DZEX:
                 if validOffset(self.segment, w1):
                     buildRec(w1)
                 else:
-                    log.warning('Invalid 0xE1 offset 0x%04X, skipping', w1)
+                    log.warning(f"Invalid 0xE1 offset 0x{w1:04X}, skipping")
             # G_RDPPIPESYNC
             elif data[i] == 0xE7:
                 #mesh.create(mesh_name_format, hierarchy, offset, self.checkUseNormals())
@@ -1442,7 +1433,7 @@ class F3DZEX:
                 self.tile[self.curTile].calculateSize(self.config["replicate_tex_mirror_blender"], self.config["enable_toon"])
             # G_LOADTILE, G_TEXRECT, G_SETZIMG, G_SETCIMG (2d "direct" drawing?)
             elif data[i] == 0xF4 or data[i] == 0xE4 or data[i] == 0xFE or data[i] == 0xFF:
-                log.debug('0x%X %08X : %08X', data[i], w0, w1)
+                log.debug(f"0x{data[i]:X} {w0:08X} : {w1:08X}")
             # G_SETTILE
             elif data[i] == 0xF5:
                 self.tile[self.curTile].texFmt = (w0 >> 21) & 0b111
@@ -1456,11 +1447,11 @@ class F3DZEX:
                 self.tile[self.curTile].tshift.y = (w1 >> 10) & 0x0F
             elif data[i] == 0xFA:
                 self.primColor = Vector([((w1 >> (8*(3-i))) & 0xFF) / 255 for i in range(4)])
-                log.debug('new primColor -> %r', self.primColor)
+                log.debug(f"new primColor -> {self.primColor}")
                 #self.primColor = Vector([min(((w1 >> 24) & 0xFF) / 255, 1.0), min(0.003922 * ((w1 >> 16) & 0xFF), 1.0), min(0.003922 * ((w1 >> 8) & 0xFF), 1.0), min(0.003922 * ((w1) & 0xFF), 1.0)])
             elif data[i] == 0xFB:
                 self.envColor = Vector([((w1 >> (8*(3-i))) & 0xFF) / 255 for i in range(4)])
-                log.debug('new envColor -> %r', self.envColor)
+                log.debug(f"new envColor -> {self.envColor}")
                 #self.envColor = Vector([min(0.003922 * ((w1 >> 24) & 0xFF), 1.0), min(0.003922 * ((w1 >> 16) & 0xFF), 1.0), min(0.003922 * ((w1 >> 8) & 0xFF), 1.0)])
                 if self.config["invert_env_color"]:
                     self.envColor = Vector([1 - c for c in self.envColor])
@@ -1471,7 +1462,7 @@ class F3DZEX:
                     else:
                         self.curTile = 0
                 except:
-                    log.exception('Failed to switch texel? at 0x%X', i)
+                    log.exception(f"Failed to switch texel? at 0x{i:X}")
                     pass
                 try:
                     if data[i + 8] == 0xE8:
@@ -1479,7 +1470,7 @@ class F3DZEX:
                     else:
                         self.tile[self.curTile].data = w1
                 except:
-                    log.exception('Failed to switch texel data? at 0x%X', i)
+                    log.exception(f"Failed to switch texel data? at 0x{i:X}")
                     pass
                 has_tex = True
             # G_CULLDL, G_BRANCH_Z, G_SETOTHERMODE_L, G_SETOTHERMODE_H, G_RDPLOADSYNC, G_RDPTILESYNC, G_LOADBLOCK,
@@ -1495,16 +1486,16 @@ class F3DZEX:
                 # https://wiki.cloudmodding.com/oot/F3DZEX#RSP_Geometry_Mode
                 # TODO: SharpOcarina tags
                 geometryModeMasks = {
-                    'G_ZBUFFER':            0b00000000000000000000000000000001,
-                    'G_SHADE':              0b00000000000000000000000000000100, # used by 0x05/0x06 for mesh.faces_use_smooth
-                    'G_CULL_FRONT':         0b00000000000000000000001000000000, # TODO: set culling (not possible per-face or per-material or even per-object apparently) / SharpOcarina tags
-                    'G_CULL_BACK':          0b00000000000000000000010000000000, # TODO: same
-                    'G_FOG':                0b00000000000000010000000000000000,
-                    'G_LIGHTING':           0b00000000000000100000000000000000,
-                    'G_TEXTURE_GEN':        0b00000000000001000000000000000000, # TODO: billboarding?
-                    'G_TEXTURE_GEN_LINEAR': 0b00000000000010000000000000000000, # TODO: billboarding?
-                    'G_SHADING_SMOOTH':     0b00000000001000000000000000000000, # used by 0x05/0x06 for mesh.faces_use_smooth
-                    'G_CLIPPING':           0b00000000100000000000000000000000,
+                    "G_ZBUFFER":            0b00000000000000000000000000000001,
+                    "G_SHADE":              0b00000000000000000000000000000100, # used by 0x05/0x06 for mesh.faces_use_smooth
+                    "G_CULL_FRONT":         0b00000000000000000000001000000000, # TODO: set culling (not possible per-face or per-material or even per-object apparently) / SharpOcarina tags
+                    "G_CULL_BACK":          0b00000000000000000000010000000000, # TODO: same
+                    "G_FOG":                0b00000000000000010000000000000000,
+                    "G_LIGHTING":           0b00000000000000100000000000000000,
+                    "G_TEXTURE_GEN":        0b00000000000001000000000000000000, # TODO: billboarding?
+                    "G_TEXTURE_GEN_LINEAR": 0b00000000000010000000000000000000, # TODO: billboarding?
+                    "G_SHADING_SMOOTH":     0b00000000001000000000000000000000, # used by 0x05/0x06 for mesh.faces_use_smooth
+                    "G_CLIPPING":           0b00000000100000000000000000000000,
                 }
                 clearbits = ~w0 & 0x00FFFFFF
                 setbits = w1
@@ -1515,26 +1506,26 @@ class F3DZEX:
                     if setbits & flagMask:
                         self.geometryModeFlags.add(flagName)
                         setbits = setbits & ~flagMask
-                log.debug('Geometry mode flags as of 0x%X: %r', i, self.geometryModeFlags)
+                log.debug(f"Geometry mode flags as of 0x{i:X}: {self.geometryModeFlags}")
                 """
                 # many unknown flags. keeping this commented out for any further research
                 if clearbits:
-                    log.warning('Unknown geometry mode flag at 0x%X in clearbits %s', i, bin(clearbits))
+                    log.warning(f"Unknown geometry mode flag at 0x{i:X} in clearbits {bin(clearbits)}")
                 if setbits:
-                    log.warning('Unknown geometry mode flag at 0x%X in setbits %s', i, bin(setbits))
+                    log.warning(f"Unknown geometry mode flag at 0x{i:X} in setbits {bin(setbits)}")
                 """
             # G_SETCOMBINE
             elif data[i] == 0xFC:
                 # https://wiki.cloudmodding.com/oot/F3DZEX/Opcode_Details#0xFC_.E2.80.94_G_SETCOMBINE
                 pass # TODO:
             else:
-                log.warning('Skipped (unimplemented) opcode 0x%02X' % data[i])
-        log.warning('Reached end of dlist started at 0x%X', startOffset)
+                log.warning(f"Skipped (unimplemented) opcode 0x{data[i]:02X}")
+        log.warning(f"Reached end of dlist started at 0x{startOffset:X}")
         mesh.create(mesh_name_format, hierarchy, offset, self.checkUseNormals(), prefix=self.prefix)
         self.alreadyRead[segment].append((startOffset,endOffset))
 
     def LinkTpose(self, hierarchy):
-        log = getLogger('F3DZEX.LinkTpose')
+        log = getLogger("F3DZEX.LinkTpose")
         segment = []
         data = self.segment[0x06]
         segment = self.segment
@@ -1549,7 +1540,7 @@ class F3DZEX:
         for i in range(BoneCount):
             bIndx = ((BoneCount-1) - i)
             if (i > -1):
-                bone = hierarchy.armature.bones["limb_%02i" % (bIndx)]
+                bone = hierarchy.armature.bones[f"limb_{bIndx:02}"]
                 bone.select = True
                 bpy.ops.transform.rotate(value = radians(bonesIndx[bIndx]), constraint_axis=(True, False, False))
                 bpy.ops.transform.rotate(value = radians(bonesIndz[bIndx]), constraint_axis=(False, False, True))
@@ -1566,7 +1557,7 @@ class F3DZEX:
         for i in range(BoneCount):
             bIndx = i
             if (i > -1):
-                bone = hierarchy.armature.bones["limb_%02i" % (bIndx)]
+                bone = hierarchy.armature.bones[f"limb_{bIndx:02}"]
                 bone.select = True
                 bpy.ops.transform.rotate(value = radians(-bonesIndy[bIndx]), constraint_axis=(False, True, False))
                 bpy.ops.transform.rotate(value = radians(-bonesIndz[bIndx]), constraint_axis=(False, False, True))
@@ -1580,9 +1571,9 @@ class F3DZEX:
         bpy.ops.pose.select_all(action="DESELECT")
 
     def buildLinkAnimations(self, hierarchy, newframe, anim_to_play):
-        log = getLogger('F3DZEX.buildLinkAnimations')
+        log = getLogger("F3DZEX.buildLinkAnimations")
         # TODO: buildLinkAnimations hasn't been rewritten/improved like buildAnimations has
-        log.warning('The code to build link animations has not been improved/tested for a while, not sure what features it lacks compared to regular animations, pretty sure it will not import all animations')
+        log.warning("The code to build link animations has not been improved/tested for a while, not sure what features it lacks compared to regular animations, pretty sure it will not import all animations")
         segment = []
         rot_indx = 0
         rot_indy = 0
@@ -1600,7 +1591,7 @@ class F3DZEX:
         else:
           currentanim = 0
 
-        log.info("currentanim: %d frameCurrent: %d", currentanim+1, frameCurrent+1)
+        log.info(f"currentanim: {currentanim+1} frameCurrent: {frameCurrent+1}", currentanim+1, frameCurrent+1)
         AnimationOffset = self.offsetAnims[currentanim]
         TAnimationOffset = self.offsetAnims[currentanim]
         AniSeg = AnimationOffset >> 24
@@ -1651,9 +1642,9 @@ class F3DZEX:
             RYY = (-RZ)
             RZZ = (RY)
 
-            log.trace('limb: %d RX %d RZ %d RY %d anim: %d frame: %d', bIndx, int(RXX), int(RZZ), int(RYY), currentanim+1, frameCurrent+1)
+            log.trace(f"limb: {bIndx} RX {int(RXX)} RZ {int(RZZ)} RY {int(RYY)} anim: {currentanim+1} frame: {frameCurrent+1}")
             if (i > -1):
-                bone = hierarchy.armature.bones["limb_%02i" % (bIndx)]
+                bone = hierarchy.armature.bones[f"limb_{bIndx:02}"]
                 bone.select = True
                 bpy.ops.transform.rotate(value = radians(RXX), constraint_axis=(True, False, False))
                 bpy.ops.transform.rotate(value = radians(RZZ), constraint_axis=(False, False, True))
@@ -1694,9 +1685,9 @@ class F3DZEX:
                 RYY = (RZ)
                 RZZ = (-RY)
 
-                log.trace("limb: %d RX %d RZ %d RY %d anim: %d frame: %d", i, int(RXX), int(RZZ), int(RYY), currentanim+1, frameCurrent+1)
+                log.trace(f"limb: {i} RX {int(RXX)} RZ {int(RZZ)} RY {int(RYY)} anim: {currentanim+1} frame: {frameCurrent+1}")
                 if (i > -1):
-                    bone = hierarchy.armature.bones["limb_%02i" % (i)]
+                    bone = hierarchy.armature.bones[f"limb_{i:02}"]
                     bone.select = True
                     bpy.ops.transform.rotate(value = radians(RYY), constraint_axis=(False, True, False))
                     bpy.ops.transform.rotate(value = radians(RZZ), constraint_axis=(False, False, True))
@@ -1712,7 +1703,7 @@ class F3DZEX:
             bpy.context.scene.frame_current = 1
 
     def buildAnimations(self, hierarchyMostBones, newframe, anim_to_play):
-        log = getLogger('F3DZEX.buildAnimations')
+        log = getLogger("F3DZEX.buildAnimations")
         rot_indx = 0
         rot_indy = 0
         rot_indz = 0
@@ -1734,7 +1725,7 @@ class F3DZEX:
         frameCurrent = newframe
 
         if not validOffset(segment, AnimationOffset):
-            log.warning('Skipping invalid animation offset 0x%X', AnimationOffset)
+            log.warning(f"Skipping invalid animation offset 0x{AnimationOffset:X}")
             return
 
         AniSeg = AnimationOffset >> 24
@@ -1750,16 +1741,16 @@ class F3DZEX:
 
         rot_vals_max_length = int ((RotIndexoffset - rot_vals_addr) / 2)
         if rot_vals_max_length < 0:
-            log.info('rotation indices (animation data) is located before indexed rotation values, this is weird but fine')
+            log.info("rotation indices (animation data) is located before indexed rotation values, this is weird but fine")
             rot_vals_max_length = (len(segment[AniSeg]) - rot_vals_addr) // 2
         rot_vals_cache = []
         def rot_vals(index, errorDefault=0):
             if index < 0 or (rot_vals_max_length and index >= rot_vals_max_length):
-                log.trace('index in rotations table %d is out of bounds (rotations table is <= %d long)', index, rot_vals_max_length)
+                log.trace(f"index in rotations table {index} is out of bounds (rotations table is <= {rot_vals_max_length} long)")
                 return errorDefault
             if index >= len(rot_vals_cache):
                 rot_vals_cache.extend(unpack_from(">h", segment[AniSeg], (rot_vals_addr) + (j * 2))[0] for j in range(len(rot_vals_cache),index+1))
-                log.trace('Computed rot_vals_cache up to %d %r', index, rot_vals_cache)
+                log.trace(f"Computed rot_vals_cache up to {index} {rot_vals_cache}")
             return rot_vals_cache[index]
 
         bpy.context.scene.tool_settings.use_keyframe_insert_auto = True
@@ -1768,7 +1759,7 @@ class F3DZEX:
 
         log.log(
             logging.INFO if (frameCurrent + 1) % min(20, max(min(10, frameTotal), frameTotal // 3)) == 0 else logging.DEBUG,
-            "anim: %d/%d frame: %d/%d", currentanim+1, self.animTotal, frameCurrent+1, frameTotal)
+            f"anim: {currentanim+1}/{self.animTotal} frame: {frameCurrent+1}/{frameTotal}")
 
         ## Translations
         Trot_indx = unpack_from(">h", segment[AniSeg], RotIndexoffset)[0]
@@ -1789,14 +1780,14 @@ class F3DZEX:
         newLocx =  TRX * self.config["scale_factor"]
         newLocz =  TRZ * self.config["scale_factor"]
         newLocy = -TRY * self.config["scale_factor"]
-        log.trace("X %d Y %d Z %d", int(TRX), int(TRY), int(TRZ))
+        log.trace(f"X {int(TRX)} Y {int(TRY)} Z {int(TRZ)}")
 
-        log.trace("       %d Frames %d still values %f tracks",frameTotal, Limit, ((rot_vals_max_length - Limit) / frameTotal)) # what is this debug message?
+        log.trace(f"       {frameTotal} Frames {Limit} still values {(rot_vals_max_length - Limit) / frameTotal:f} tracks") # what is this debug message?
         for i in range(BoneCountMax):
             bIndx = ((BoneCountMax-1) - i) # Had to reverse here, cuz didn't find a way to rotate bones on LOCAL space, start rotating from last to first bone on hierarchy GLOBAL.
 
             if RotIndexoffset + (bIndx * 6) + 10 + 2 > len(segment[AniSeg]):
-                log.trace('Ignoring bone %d in animation %d, rotation table does not have that many entries', bIndx, anim_to_play)
+                log.trace(f"Ignoring bone {bIndx} in animation {anim_to_play}, rotation table does not have that many entries")
                 continue
 
             rot_indexx = unpack_from(">h", segment[AniSeg], RotIndexoffset + (bIndx * 6) + 6)[0]
@@ -1819,7 +1810,7 @@ class F3DZEX:
             RZ = rot_vals(rot_indy, False)
 
             if RX is False or RY is False or RZ is False:
-                log.trace('Ignoring bone %d in animation %d, rotation table did not have the entry', bIndx, anim_to_play)
+                log.trace(f"Ignoring bone {bIndx} in animation {anim_to_play}, rotation table did not have the entry")
                 continue
 
             RX /= 182.04444444444444444444 # = 0x10000 / 360
@@ -1830,10 +1821,10 @@ class F3DZEX:
             RYY = radians(RY)
             RZZ = radians(RZ)
 
-            log.trace("limb: %d XIdx: %d %d YIdx: %d %d ZIdx: %d %d frameTotal: %d", bIndx, rot_indexx, rot_indx, rot_indexy, rot_indy, rot_indexz, rot_indz, frameTotal)
-            log.trace("limb: %d RX %d RZ %d RY %d anim: %d frame: %d frameTotal: %d", bIndx, int(RX), int(RZ), int(RY), currentanim+1, frameCurrent+1, frameTotal)
+            log.trace(f"limb: {bIndx} XIdx: {rot_indexx} {rot_indx} YIdx: {rot_indexy} {rot_indy} ZIdx: {rot_indexz} {rot_indz} frameTotal: {frameTotal}")
+            log.trace(f"limb: {bIndx} RX {int(RX)} RZ {int(RZ)} RY {int(RY)} anim: {currentanim+1} frame: {frameCurrent+1} frameTotal: {frameTotal}")
             if (bIndx > -1):
-                bone = armature.data.bones["limb_%02i" % (bIndx)]
+                bone = armature.data.bones[f"limb_{bIndx:02}"]
                 bone.select = True
                 bpy.ops.transform.rotate(value = RXX, constraint_axis=(True, False, False))
                 bpy.ops.transform.rotate(value = RZZ, constraint_axis=(False, False, True))
@@ -1843,7 +1834,7 @@ class F3DZEX:
 
         bone = armature.pose.bones["limb_00"]
         bone.location += Vector((newLocx,newLocz,-newLocy))
-        bone.keyframe_insert(data_path='location')
+        bone.keyframe_insert(data_path="location")
 
         ### Could have done some math here but... just reverse previus frame, so it just repose.
         bpy.context.scene.tool_settings.use_keyframe_insert_auto = False
@@ -1855,7 +1846,7 @@ class F3DZEX:
             bIndx = i
 
             if RotIndexoffset + (bIndx * 6) + 10 + 2 > len(segment[AniSeg]):
-                log.trace('Ignoring bone %d in animation %d, rotation table does not have that many entries', bIndx, anim_to_play)
+                log.trace(f"Ignoring bone {bIndx} in animation {anim_to_play}, rotation table does not have that many entries") 
                 continue
 
             rot_indexx = unpack_from(">h", segment[AniSeg], RotIndexoffset + (bIndx * 6) + 6)[0]
@@ -1878,7 +1869,7 @@ class F3DZEX:
             RZ = rot_vals(rot_indy, False)
 
             if RX is False or RY is False or RZ is False:
-                log.trace('Ignoring bone %d in animation %d, rotation table did not have the entry', bIndx, anim_to_play)
+                log.trace(f"Ignoring bone {bIndx} in animation {anim_to_play}, rotation table did not have the entry")
                 continue
 
             RX /= -182.04444444444444444444
@@ -1889,10 +1880,10 @@ class F3DZEX:
             RYY = radians(RY)
             RZZ = radians(RZ)
 
-            log.trace("limb: %d XIdx: %d %d YIdx: %d %d ZIdx: %d %d frameTotal: %d", i, rot_indexx, rot_indx, rot_indexy, rot_indy, rot_indexz, rot_indz, frameTotal)
-            log.trace("limb: %d RX %d RZ %d RY %d anim: %d frame: %d frameTotal: %d", bIndx, int(RX), int(RZ), int(RY), currentanim+1, frameCurrent+1, frameTotal)
+            log.trace(f"limb: {i} XIdx: {rot_indexx} {rot_indx} YIdx: {rot_indexy} {rot_indy} ZIdx: {rot_indexz} {rot_indz} frameTotal: {frameTotal}")
+            log.trace(f"limb: {bIndx} RX {int(RX)} RZ {int(RZ)} RY {int(RY)} anim: {currentanim+1} frame: {frameCurrent+1} frameTotal: {frameTotal}")
             if (bIndx > -1):
-                bone = armature.data.bones["limb_%02i" % (bIndx)]
+                bone = armature.data.bones[f"limb_{bIndx:02}"]
                 bone.select = True
                 bpy.ops.transform.rotate(value = RYY, constraint_axis=(False, True, False))
                 bpy.ops.transform.rotate(value = RZZ, constraint_axis=(False, False, True))
@@ -1904,7 +1895,3 @@ class F3DZEX:
             self.buildAnimations(hierarchyMostBones, frameCurrent, anim_to_play)
         else:
             bpy.context.scene.frame_current = 1
-
-# bpy.ops.transform.rotate(value=0.785398, orient_axis='X', orient_type='GLOBAL', orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)), orient_matrix_type='GLOBAL', constraint_axis=(True, False, False))
-# bpy.ops.transform.rotate(value=0.785398, orient_axis='X', orient_type='LOCAL', orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)), orient_matrix_type='LOCAL', constraint_axis=(True, False, False))
-# bpy.ops.transform.rotate(value=0.0, axis=(0.0, 0.0, 0.0), constraint_orientation='GLOBAL', constraint_axis=(False, False, False), )

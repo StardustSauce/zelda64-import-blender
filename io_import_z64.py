@@ -24,19 +24,6 @@ def validOffset(segment, offset):
         return False
     return True
 
-def pow2(val):
-    i = 1
-    while i < val:
-        i <<= 1
-    return int(i)
-
-def powof(val):
-    num, i = 1, 0
-    while num < val:
-        num <<= 1
-        i += 1
-    return int(i)
-
 class Tile:
     def __init__(self):
         self.current_texture_file_path = None
@@ -195,6 +182,19 @@ class Tile:
             return None
 
     def calculateSize(self, replicate_tex_mirror_blender, enable_toon):
+        def pow2(val):
+            i = 1
+            while i < val:
+                i <<= 1
+            return int(i)
+
+        def powof(val):
+            num, i = 1, 0
+            while num < val:
+                num <<= 1
+                i += 1
+            return int(i)
+
         log = getLogger('Tile.calculateSize')
         maxTxl, lineShift = 0, 0
         # FIXME: what is maxTxl? this whole function is rather mysterious, not sure how/why it works
@@ -680,7 +680,6 @@ class F3DZEX:
         self.geometryModeFlags = set()
 
         self.animTotal = 0
-        self.anim_to_play = 1 if self.config["load_animations"] else 0
         self.TimeLine = 0
         self.TimeLinePosition = 0
         self.displaylists = []
@@ -799,7 +798,7 @@ class F3DZEX:
         if(self.animTotal > 0):
             log.info("        Total Anims                   :", self.animTotal)
 
-    def locateLinkAnimations(self):
+    def locateLinkAnimations(self, anim_to_play):
         log = getLogger('F3DZEX.locateLinkAnimations')
         data = self.segment[0x04]
         self.animation = []
@@ -827,7 +826,7 @@ class F3DZEX:
                     log.debug('- Animation #%d offset: %07X frames: %d', self.animTotal+1, self.offsetAnims[self.animTotal], self.animFrames[self.animTotal])
         log.info("         Link has come to town!!!!")
         if ( (len( self.segment[0x07] ) > 0) and (self.animTotal > 0)):
-            self.buildLinkAnimations(self.hierarchy[0], 0)
+            self.buildLinkAnimations(self.hierarchy[0], 0, anim_to_play)
 
     def importJFIF(self, data, initPropsOffset, name_format='bg_%08X'):
         log = getLogger('F3DZEX.importJFIF')
@@ -1059,6 +1058,7 @@ class F3DZEX:
         log.info("Locating hierarchies...")
         self.locateHierarchies()
 
+
         if len(self.displaylists) != 0:
             log.info('Importing display lists defined in displaylists.txt')
             for offsetStr in self.displaylists:
@@ -1079,6 +1079,8 @@ class F3DZEX:
                 log.info('Importing display list 0x%08X (from displaylists.txt)', offset)
                 self.buildDisplayList(None, 0, offset)
 
+        anim_to_play = 1 if self.config["load_animations"] else 0
+
         for hierarchy in self.hierarchy:
             log.info("Building hierarchy '%s'..." % hierarchy.name)
             hierarchy.create()
@@ -1097,7 +1099,7 @@ class F3DZEX:
             bpy.context.view_layer.objects.active = self.hierarchy[0].armature
             self.hierarchy[0].armature.select_set(True)
             bpy.ops.object.mode_set(mode='POSE', toggle=False)
-            if (self.anim_to_play > 0):
+            if (anim_to_play > 0):
                 bpy.context.scene.frame_end = 1
                 if(self.config["external_animes"] and len(self.segment[0x0F]) > 0):
                     self.locateExternAnimations()
@@ -1116,18 +1118,18 @@ class F3DZEX:
                     armature = hierarchy.armature
                     log.info('Building animations using armature %s in %s', armature.data.name, armature.name)
                     for i in range(len(self.animation)):
-                        self.anim_to_play = i + 1
-                        log.info("   Loading animation %d/%d 0x%08X", self.anim_to_play, len(self.animation), self.offsetAnims[self.anim_to_play-1])
-                        action = bpy.data.actions.new(self.prefix + ('anim%d_%d' % (self.anim_to_play, self.durationAnims[i])))
+                        anim_to_play = i + 1
+                        log.info("   Loading animation %d/%d 0x%08X", anim_to_play, len(self.animation), self.offsetAnims[anim_to_play-1])
+                        action = bpy.data.actions.new(self.prefix + ('anim%d_%d' % (anim_to_play, self.durationAnims[i])))
                         # not sure what users an action is supposed to have, or what it should be linked to
                         action.use_fake_user = True
                         armature.animation_data.action = action
-                        self.buildAnimations(hierarchy, 0)
+                        self.buildAnimations(hierarchy, 0, anim_to_play)
                     for h in self.hierarchy:
                         h.armature.animation_data.action = action
                     bpy.context.scene.frame_end = max(self.durationAnims)
                 else:
-                    self.locateLinkAnimations()
+                    self.locateLinkAnimations(anim_to_play)
             else:
                 log.info("    Load anims OFF.")
 
@@ -1577,7 +1579,7 @@ class F3DZEX:
         bpy.ops.transform.translate(value = (0, 0, 0), constraint_axis=(False, True, False))
         bpy.ops.pose.select_all(action="DESELECT")
 
-    def buildLinkAnimations(self, hierarchy, newframe):
+    def buildLinkAnimations(self, hierarchy, newframe, anim_to_play):
         log = getLogger('F3DZEX.buildLinkAnimations')
         # TODO: buildLinkAnimations hasn't been rewritten/improved like buildAnimations has
         log.warning('The code to build link animations has not been improved/tested for a while, not sure what features it lacks compared to regular animations, pretty sure it will not import all animations')
@@ -1593,8 +1595,8 @@ class F3DZEX:
         RX, RY, RZ = 0,0,0
         frameCurrent = newframe
 
-        if (self.anim_to_play > 0 and self.anim_to_play <= n_anims):
-          currentanim = self.anim_to_play - 1
+        if (anim_to_play > 0 and anim_to_play <= n_anims):
+          currentanim = anim_to_play - 1
         else:
           currentanim = 0
 
@@ -1704,12 +1706,12 @@ class F3DZEX:
             bpy.context.scene.frame_end += 1
             bpy.context.scene.frame_current += 1
             frameCurrent += 1
-            self.buildLinkAnimations(hierarchy, frameCurrent)
+            self.buildLinkAnimations(hierarchy, frameCurrent, anim_to_play)
         else:
             bpy.context.scene.tool_settings.use_keyframe_insert_auto = False
             bpy.context.scene.frame_current = 1
 
-    def buildAnimations(self, hierarchyMostBones, newframe):
+    def buildAnimations(self, hierarchyMostBones, newframe, anim_to_play):
         log = getLogger('F3DZEX.buildAnimations')
         rot_indx = 0
         rot_indy = 0
@@ -1720,8 +1722,8 @@ class F3DZEX:
         segment = self.segment
         RX, RY, RZ = 0,0,0
         n_anims = self.animTotal
-        if (self.anim_to_play > 0 and self.anim_to_play <= n_anims):
-            currentanim = self.anim_to_play - 1
+        if (anim_to_play > 0 and anim_to_play <= n_anims):
+            currentanim = anim_to_play - 1
         else:
             currentanim = 0
 
@@ -1794,7 +1796,7 @@ class F3DZEX:
             bIndx = ((BoneCountMax-1) - i) # Had to reverse here, cuz didn't find a way to rotate bones on LOCAL space, start rotating from last to first bone on hierarchy GLOBAL.
 
             if RotIndexoffset + (bIndx * 6) + 10 + 2 > len(segment[AniSeg]):
-                log.trace('Ignoring bone %d in animation %d, rotation table does not have that many entries', bIndx, self.anim_to_play)
+                log.trace('Ignoring bone %d in animation %d, rotation table does not have that many entries', bIndx, anim_to_play)
                 continue
 
             rot_indexx = unpack_from(">h", segment[AniSeg], RotIndexoffset + (bIndx * 6) + 6)[0]
@@ -1817,7 +1819,7 @@ class F3DZEX:
             RZ = rot_vals(rot_indy, False)
 
             if RX is False or RY is False or RZ is False:
-                log.trace('Ignoring bone %d in animation %d, rotation table did not have the entry', bIndx, self.anim_to_play)
+                log.trace('Ignoring bone %d in animation %d, rotation table did not have the entry', bIndx, anim_to_play)
                 continue
 
             RX /= 182.04444444444444444444 # = 0x10000 / 360
@@ -1837,6 +1839,7 @@ class F3DZEX:
                 bpy.ops.transform.rotate(value = RZZ, constraint_axis=(False, False, True))
                 bpy.ops.transform.rotate(value = RYY, constraint_axis=(False, True, False))
                 bpy.ops.pose.select_all(action="DESELECT")
+                # Problem occurs between here and the rotation at End of File
 
         bone = armature.pose.bones["limb_00"]
         bone.location += Vector((newLocx,newLocz,-newLocy))
@@ -1852,7 +1855,7 @@ class F3DZEX:
             bIndx = i
 
             if RotIndexoffset + (bIndx * 6) + 10 + 2 > len(segment[AniSeg]):
-                log.trace('Ignoring bone %d in animation %d, rotation table does not have that many entries', bIndx, self.anim_to_play)
+                log.trace('Ignoring bone %d in animation %d, rotation table does not have that many entries', bIndx, anim_to_play)
                 continue
 
             rot_indexx = unpack_from(">h", segment[AniSeg], RotIndexoffset + (bIndx * 6) + 6)[0]
@@ -1875,7 +1878,7 @@ class F3DZEX:
             RZ = rot_vals(rot_indy, False)
 
             if RX is False or RY is False or RZ is False:
-                log.trace('Ignoring bone %d in animation %d, rotation table did not have the entry', bIndx, self.anim_to_play)
+                log.trace('Ignoring bone %d in animation %d, rotation table did not have the entry', bIndx, anim_to_play)
                 continue
 
             RX /= -182.04444444444444444444
@@ -1898,6 +1901,10 @@ class F3DZEX:
 
         if (frameCurrent < (frameTotal - 1)):## Next Frame
             frameCurrent += 1
-            self.buildAnimations(hierarchyMostBones, frameCurrent)
+            self.buildAnimations(hierarchyMostBones, frameCurrent, anim_to_play)
         else:
             bpy.context.scene.frame_current = 1
+
+# bpy.ops.transform.rotate(value=0.785398, orient_axis='X', orient_type='GLOBAL', orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)), orient_matrix_type='GLOBAL', constraint_axis=(True, False, False))
+# bpy.ops.transform.rotate(value=0.785398, orient_axis='X', orient_type='LOCAL', orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)), orient_matrix_type='LOCAL', constraint_axis=(True, False, False))
+# bpy.ops.transform.rotate(value=0.0, axis=(0.0, 0.0, 0.0), constraint_orientation='GLOBAL', constraint_axis=(False, False, False), )

@@ -89,7 +89,7 @@ class Tile:
             except FileExistsError:
                 pass
             except:
-                log.exception(f"Could not create textures directory {fpath + '/textures'}")
+                log.exception(f"Could not create textures directory {fpath}/textures")
                 pass
             if not os.path.isfile(self.current_texture_file_path):
                 log.debug(f"Writing texture {self.current_texture_file_path} (format 0x{self.texFmt:02X})")
@@ -237,6 +237,7 @@ class Tile:
         maskWidth = 1 << int(self.mask.x)
         maskHeight = 1 << int(self.mask.y)
         lineHeight = 0
+        
         if lineWidth > 0:
             lineHeight = min(int(maxTxl / lineWidth), tileHeight)
         if self.mask.x > 0 and (maskWidth * maskHeight) <= maxTxl:
@@ -245,6 +246,7 @@ class Tile:
             self.width = tileWidth
         else:
             self.width = lineWidth
+        
         if self.mask.y > 0 and (maskWidth * maskHeight) <= maxTxl:
             self.height = maskHeight
         elif (tileWidth * tileHeight) <= maxTxl:
@@ -252,6 +254,7 @@ class Tile:
         else:
             self.height = lineHeight
         clampWidth, clampHeight = 0, 0
+        
         if self.clip.x == 1:
             clampWidth = tileWidth
         else:
@@ -260,18 +263,21 @@ class Tile:
             clampHeight = tileHeight
         else:
             clampHeight = self.height
+        
         if maskWidth > self.width:
             self.mask.x = powof(self.width)
             maskWidth = 1 << int(self.mask.x)
         if maskHeight > self.height:
             self.mask.y = powof(self.height)
             maskHeight = 1 << int(self.mask.y)
+        
         if int(self.clip.x) & 2 != 0:
             self.rWidth = pow2(clampWidth)
         elif int(self.clip.x) & 1 != 0:
             self.rWidth = pow2(maskWidth)
         else:
             self.rWidth = pow2(self.width)
+        
         if int(self.clip.y) & 2 != 0:
             self.rHeight = pow2(clampHeight)
         elif int(self.clip.y) & 1 != 0:
@@ -279,21 +285,25 @@ class Tile:
         else:
             self.rHeight = pow2(self.height)
         self.shift.x, self.shift.y = 1.0, 1.0
+        
         if self.tshift.x > 10:
             self.shift.x = 1 << int(16 - self.tshift.x)
         elif self.tshift.x > 0:
             self.shift.x /= 1 << int(self.tshift.x)
+        
         if self.tshift.y > 10:
             self.shift.y = 1 << int(16 - self.tshift.y)
         elif self.tshift.y > 0:
             self.shift.y /= 1 << int(self.tshift.y)
         self.ratio.x = (self.scale.x * self.shift.x) / self.rWidth
+        
         if not enable_toon:
             self.ratio.x /= 32;
         if int(self.clip.x) & 1 != 0 and replicate_tex_mirror_blender:
             self.ratio.x /= 2
         self.offset.x = self.rect.x
         self.ratio.y = (self.scale.y * self.shift.y) / self.rHeight
+        
         if not enable_toon:
             self.ratio.y /= 32;
         if int(self.clip.y) & 1 != 0 and replicate_tex_mirror_blender:
@@ -518,10 +528,10 @@ class Mesh:
         me.validate()
         me.update()
 
-        log.debug(f"me =\n{me}", me)
-        log.debug(f"verts =\n{self.verts}")
-        log.debug(f"faces =\n{self.faces}")
-        log.debug(f"normals =\n{self.normals}")
+        log.debug(f"me =\n{me!r}")
+        log.debug(f"verts =\n{self.verts!r}")
+        log.debug(f"faces =\n{self.faces!r}")
+        log.debug(f"normals =\n{self.normals!r}")
 
         if use_normals:
             # FIXME: make sure normals are set in the right order
@@ -576,7 +586,7 @@ class Limb:
         self.poseLoc.x = unpack_from(">h", segment[seg], rot_offset)[0]
         self.poseLoc.z = unpack_from(">h", segment[seg], rot_offset + 2)[0]
         self.poseLoc.y = unpack_from(">h", segment[seg], rot_offset + 4)[0]
-        getLogger("Limb.read").trace(f"      Limb {actuallimb}: {self.poseLoc.x:f},{self.poseLoc.z:f},{self.poseLoc.y:f}")
+        getLogger("Limb.read").trace(f"      Limb {actuallimb!r}: {self.poseLoc.x:f},{self.poseLoc.z:f},{self.poseLoc.y:f}")
 
 class Hierarchy:
     def __init__(self):
@@ -1211,7 +1221,7 @@ class F3DZEX:
         startOffset = offset & 0x00FFFFFF
         endOffset = len(data)
         if skipAlreadyRead:
-            log.trace(f"is 0x{startOffset:X} in {self.alreadyRead[segment]} ?")
+            log.trace(f"is 0x{startOffset:X} in {self.alreadyRead[segment]!r} ?")
             for fromOffset,toOffset in self.alreadyRead[segment]:
                 if fromOffset <= startOffset and startOffset <= toOffset:
                     log.debug(f"Skipping already read dlist at 0x{startOffset:X}")
@@ -1447,11 +1457,11 @@ class F3DZEX:
                 self.tile[self.curTile].tshift.y = (w1 >> 10) & 0x0F
             elif data[i] == 0xFA:
                 self.primColor = Vector([((w1 >> (8*(3-i))) & 0xFF) / 255 for i in range(4)])
-                log.debug(f"new primColor -> {self.primColor}")
+                log.debug(f"new primColor -> {self.primColor!r}")
                 #self.primColor = Vector([min(((w1 >> 24) & 0xFF) / 255, 1.0), min(0.003922 * ((w1 >> 16) & 0xFF), 1.0), min(0.003922 * ((w1 >> 8) & 0xFF), 1.0), min(0.003922 * ((w1) & 0xFF), 1.0)])
             elif data[i] == 0xFB:
                 self.envColor = Vector([((w1 >> (8*(3-i))) & 0xFF) / 255 for i in range(4)])
-                log.debug(f"new envColor -> {self.envColor}")
+                log.debug(f"new envColor -> {self.envColor!r}")
                 #self.envColor = Vector([min(0.003922 * ((w1 >> 24) & 0xFF), 1.0), min(0.003922 * ((w1 >> 16) & 0xFF), 1.0), min(0.003922 * ((w1 >> 8) & 0xFF), 1.0)])
                 if self.config["invert_env_color"]:
                     self.envColor = Vector([1 - c for c in self.envColor])
@@ -1506,7 +1516,7 @@ class F3DZEX:
                     if setbits & flagMask:
                         self.geometryModeFlags.add(flagName)
                         setbits = setbits & ~flagMask
-                log.debug(f"Geometry mode flags as of 0x{i:X}: {self.geometryModeFlags}")
+                log.debug(f"Geometry mode flags as of 0x{i:X}: {self.geometryModeFlags!r}")
                 """
                 # many unknown flags. keeping this commented out for any further research
                 if clearbits:
@@ -1704,14 +1714,10 @@ class F3DZEX:
 
     def buildAnimations(self, hierarchyMostBones, newframe, anim_to_play):
         log = getLogger("F3DZEX.buildAnimations")
-        rot_indx = 0
-        rot_indy = 0
-        rot_indz = 0
-        Trot_indx = 0
-        Trot_indy = 0
-        Trot_indz = 0
-        segment = self.segment
+        rot_indx, rot_indy, rot_indz = 0,0,0
+        Trot_indx, Trot_indy, Trot_indz = 0,0,0
         RX, RY, RZ = 0,0,0
+        segment = self.segment
         n_anims = self.animTotal
         if (anim_to_play > 0 and anim_to_play <= n_anims):
             currentanim = anim_to_play - 1
@@ -1750,7 +1756,7 @@ class F3DZEX:
                 return errorDefault
             if index >= len(rot_vals_cache):
                 rot_vals_cache.extend(unpack_from(">h", segment[AniSeg], (rot_vals_addr) + (j * 2))[0] for j in range(len(rot_vals_cache),index+1))
-                log.trace(f"Computed rot_vals_cache up to {index} {rot_vals_cache}")
+                log.trace(f"Computed rot_vals_cache up to {index} {rot_vals_cache!r}")
             return rot_vals_cache[index]
 
         bpy.context.scene.tool_settings.use_keyframe_insert_auto = True

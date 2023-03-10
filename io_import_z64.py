@@ -1580,45 +1580,25 @@ class F3DZEX:
         bpy.ops.transform.translate(value = (0, 0, 0), constraint_axis=(False, True, False))
         bpy.ops.pose.select_all(action="DESELECT")
 
-    def buildLinkAnimations(self, hierarchy, newframe, anim_to_play):
+    def buildLinkAnimations(self, hierarchy, anim_to_play):
         log = getLogger("F3DZEX.buildLinkAnimations")
         # TODO: buildLinkAnimations hasn't been rewritten/improved like buildAnimation has
         log.warning("The code to build link animations has not been improved/tested for a while, not sure what features it lacks compared to regular animations, pretty sure it will not import all animations")
-        segment = []
-        rot_indx = 0
-        rot_indy = 0
-        rot_indz = 0
-        data = self.segment[0x06]
         segment = self.segment
         n_anims = self.animTotal
-        seg, offset = splitOffset(hierarchy.offset)
-        BoneCount  = hierarchy.limbCount
-        RX, RY, RZ = 0,0,0
-        frameCurrent = newframe
 
         if (anim_to_play > 0 and anim_to_play <= n_anims):
-          currentanim = anim_to_play - 1
+            currentanim = anim_to_play - 1
         else:
-          currentanim = 0
+            currentanim = 0
 
-        log.info(f"currentanim: {currentanim+1} frameCurrent: {frameCurrent+1}", currentanim+1, frameCurrent+1)
         AnimationOffset = self.offsetAnims[currentanim]
-        TAnimationOffset = self.offsetAnims[currentanim]
+        seg, offset = splitOffset(hierarchy.offset)
+        BoneCount  = hierarchy.limbCount
+        armature = hierarchy.armature
         AniSeg = AnimationOffset >> 24
         AnimationOffset &= 0xFFFFFF
-        rot_offset = AnimationOffset
-        rot_offset += (frameCurrent * (BoneCount * 6 + 8))
         frameTotal = self.animFrames[currentanim]
-        rot_offset += BoneCount * 6
-
-        Trot_offset = TAnimationOffset & 0xFFFFFF
-        Trot_offset += (frameCurrent * (BoneCount * 6 + 8))
-        TRX = unpack_from(">h", segment[AniSeg], Trot_offset)[0]
-        Trot_offset += 2
-        TRZ = unpack_from(">h", segment[AniSeg], Trot_offset)[0]
-        Trot_offset += 2
-        TRY = -unpack_from(">h", segment[AniSeg], Trot_offset)[0]
-        Trot_offset += 2
         BoneListListOffset = unpack_from(">L", segment[seg], offset)[0]
         BoneListListOffset &= 0xFFFFFF
 
@@ -1633,84 +1613,55 @@ class F3DZEX:
         newLocz += TRZ / 79
         newLocy = TRY / 79
 
-        bpy.context.scene.tool_settings.use_keyframe_insert_auto = True
-
-        for i in range(BoneCount):
-            bIndx = ((BoneCount-1) - i) # Had to reverse here, cuz didn't find a way to rotate bones on LOCAL space, start rotating from last to first bone on hierarchy GLOBAL.
-            RX = unpack_from(">h", segment[AniSeg], rot_offset)[0]
-            rot_offset -= 2
-            RY = unpack_from(">h", segment[AniSeg], rot_offset + 4)[0]
-            rot_offset -= 2
-            RZ = unpack_from(">h", segment[AniSeg], rot_offset + 8)[0]
-            rot_offset -= 2
-
-            RX /= (182.04444444444444444444)
-            RY /= (182.04444444444444444444)
-            RZ /= (182.04444444444444444444)
-
-            RXX = (RX)
-            RYY = (-RZ)
-            RZZ = (RY)
-
-            log.trace(f"limb: {bIndx} RX {int(RXX)} RZ {int(RZZ)} RY {int(RYY)} anim: {currentanim+1} frame: {frameCurrent+1}")
-            if (i > -1):
-                bone = hierarchy.armature.bones[f"limb_{bIndx:02}"]
-                bone.select = True
-                bpy.ops.transform.rotate(value = radians(RXX), constraint_axis=(True, False, False))
-                bpy.ops.transform.rotate(value = radians(RZZ), constraint_axis=(False, False, True))
-                bpy.ops.transform.rotate(value = radians(RYY), constraint_axis=(False, True, False))
-                bpy.ops.pose.select_all(action="DESELECT")
-
-        hierarchy.armature.bones["limb_00"].select = True ## Translations
-        bpy.ops.transform.translate(value =(newLocx, 0, 0), constraint_axis=(True, False, False))
-        bpy.ops.transform.translate(value = (0, 0, newLocz), constraint_axis=(False, False, True))
-        bpy.ops.transform.translate(value = (0, newLocy, 0), constraint_axis=(False, True, False))
-        bpy.ops.pose.select_all(action="DESELECT")
-
-        if (frameCurrent < (frameTotal - 1)):## Next Frame ### Could have done some math here but... just reverse previus frame, so it just repose.
-            bpy.context.scene.tool_settings.use_keyframe_insert_auto = False
-
-            hierarchy.armature.bones["limb_00"].select = True ## Translations
-            bpy.ops.transform.translate(value = (-newLocx, 0, 0), constraint_axis=(True, False, False))
-            bpy.ops.transform.translate(value = (0, 0, -newLocz), constraint_axis=(False, False, True))
-            bpy.ops.transform.translate(value = (0, -newLocy, 0), constraint_axis=(False, True, False))
-            bpy.ops.pose.select_all(action="DESELECT")
-
+        for frame in range(frameTotal):
+            log.info(f"currentanim: {currentanim+1} frameCurrent: {frame+1}", currentanim+1, frame+1)
             rot_offset = AnimationOffset
-            rot_offset += (frameCurrent * (BoneCount * 6 + 8))
-            rot_offset += 6
-            for i in range(BoneCount):
+            rot_offset += (frame * (BoneCount * 6 + 8))
+            rot_offset += BoneCount * 6
+
+            Trot_offset = AnimationOffset & 0xFFFFFF
+            Trot_offset += (frame * (BoneCount * 6 + 8))
+            TRX = unpack_from(">h", segment[AniSeg], Trot_offset)[0]
+            Trot_offset += 2
+            TRZ = unpack_from(">h", segment[AniSeg], Trot_offset)[0]
+            Trot_offset += 2
+            TRY = -unpack_from(">h", segment[AniSeg], Trot_offset)[0]
+            Trot_offset += 2
+
+            for bIndx in reversed(range(BoneCount)): # Had to reverse here, cuz didn't find a way to rotate bones on LOCAL space, start rotating from last to first bone on hierarchy GLOBAL.
                 RX = unpack_from(">h", segment[AniSeg], rot_offset)[0]
-                rot_offset += 2
-                RY = unpack_from(">h", segment[AniSeg], rot_offset)[0]
-                rot_offset += 2
-                RZ = unpack_from(">h", segment[AniSeg], rot_offset)[0]
-                rot_offset += 2
+                rot_offset -= 2
+                RY = unpack_from(">h", segment[AniSeg], rot_offset + 4)[0]
+                rot_offset -= 2
+                RZ = unpack_from(">h", segment[AniSeg], rot_offset + 8)[0]
+                rot_offset -= 2
 
-                RX /= (182.04444444444444444444)
-                RY /= (182.04444444444444444444)
-                RZ /= (182.04444444444444444444)
+                RX /= 182.04444444444444444444 # = 0x10000 / 360
+                RY /= 182.04444444444444444444
+                RZ /= 182.04444444444444444444
 
-                RXX = (-RX)
-                RYY = (RZ)
-                RZZ = (-RY)
+                RXX = radians(RX)
+                RYY = radians(-RZ)
+                RZZ = radians(RY)
 
-                log.trace(f"limb: {i} RX {int(RXX)} RZ {int(RZZ)} RY {int(RYY)} anim: {currentanim+1} frame: {frameCurrent+1}")
+                log.trace(f"limb: {bIndx} RX {int(RXX)} RZ {int(RZZ)} RY {int(RYY)} anim: {currentanim+1} frame: {frame+1}")
                 if (i > -1):
-                    bone = hierarchy.armature.bones[f"limb_{i:02}"]
-                    bone.select = True
-                    bpy.ops.transform.rotate(value = radians(RYY), constraint_axis=(False, True, False))
-                    bpy.ops.transform.rotate(value = radians(RZZ), constraint_axis=(False, False, True))
-                    bpy.ops.transform.rotate(value = radians(RXX), constraint_axis=(True, False, False))
+                    poseBone = armature.pose.bones[f"limb_{bIndx:02}"]
+                    poseBone.bone.select = True
+                    bpy.ops.transform.rotate(value = -RXX, orient_axis="X")
+                    bpy.ops.transform.rotate(value = -RZZ, orient_axis="Z")
+                    bpy.ops.transform.rotate(value = -RYY, orient_axis="Y")
+                    poseBone.keyframe_insert(data_path="rotation_quaternion", frame=frame+1)
                     bpy.ops.pose.select_all(action="DESELECT")
 
-            bpy.context.scene.frame_end += 1
-            bpy.context.scene.frame_current += 1
-            frameCurrent += 1
-            self.buildLinkAnimations(hierarchy, frameCurrent, anim_to_play)
-        else:
-            bpy.context.scene.tool_settings.use_keyframe_insert_auto = False
-            bpy.context.scene.frame_current = 1
+            bone = armature.bones["limb_00"]
+            bone.location += Vector((newLocx,newLocz,-newLocy)) ## Translations
+            bone.keyframe_insert(data_path="location", frame=frame+1)
+
+            for bone in armature.data.bones:
+                bone.select = True
+            bpy.ops.pose.transforms_clear()
+            bpy.ops.pose.select_all(action="DESELECT")
 
     def buildAnimation(self, hierarchyMostBones, anim_to_play):
         log = getLogger("F3DZEX.buildAnimation")
@@ -1735,11 +1686,11 @@ class F3DZEX:
         AniSeg = AnimationOffset >> 24
         AnimationOffset &= 0xFFFFFF
 
+        Limit = unpack_from(">H", segment[AniSeg], (AnimationOffset + 12))[0] # TODO: no idea what this is
+        
         frameTotal = unpack_from(">h", segment[AniSeg], (AnimationOffset))[0]
         rot_vals_addr = unpack_from(">L", segment[AniSeg], (AnimationOffset + 4))[0]
         RotIndexoffset = unpack_from(">L", segment[AniSeg], (AnimationOffset + 8))[0]
-
-        Limit = unpack_from(">H", segment[AniSeg], (AnimationOffset + 12))[0] # TODO: no idea what this is
 
         rot_vals_addr  &= 0xFFFFFF
         RotIndexoffset &= 0xFFFFFF
@@ -1758,7 +1709,7 @@ class F3DZEX:
                 log.trace(f"Computed rot_vals_cache up to {index} {rot_vals_cache!r}")
             return rot_vals_cache[index]
 
-        bpy.context.scene.frame_end = frameTotal
+        bpy.context.scene.frame_end = frameTotal # This doesn't make sense with multiple animations
         
         for frame in range(frameTotal):
             log.log(
@@ -1784,12 +1735,15 @@ class F3DZEX:
             newLocx =  TRX * self.config["scale_factor"]
             newLocz =  TRZ * self.config["scale_factor"]
             newLocy = -TRY * self.config["scale_factor"]
+
             log.trace(f"X {int(TRX)} Y {int(TRY)} Z {int(TRZ)}")
 
+            bone = armature.pose.bones["limb_00"]
+            bone.location += Vector((newLocx,newLocz,-newLocy))
+            bone.keyframe_insert(data_path="location", frame=frame+1)
+            
             log.trace(f"       {frameTotal} Frames {Limit} still values {(rot_vals_max_length - Limit) / frameTotal:f} tracks") # what is this debug message?
-            for i in range(BoneCountMax):
-                bIndx = ((BoneCountMax-1) - i) # Had to reverse here, cuz didn't find a way to rotate bones on LOCAL space, start rotating from last to first bone on hierarchy GLOBAL.
-
+            for bIndx in reversed(range(BoneCountMax)): # Had to reverse here, cuz didn't find a way to rotate bones on LOCAL space, start rotating from last to first bone on hierarchy GLOBAL.
                 if RotIndexoffset + (bIndx * 6) + 10 + 2 > len(segment[AniSeg]):
                     log.trace(f"Ignoring bone {bIndx} in animation {anim_to_play}, rotation table does not have that many entries")
                     continue
@@ -1816,7 +1770,7 @@ class F3DZEX:
                 if RX is False or RY is False or RZ is False:
                     log.trace(f"Ignoring bone {bIndx} in animation {anim_to_play}, rotation table did not have the entry")
                     continue
-
+                
                 RX /= 182.04444444444444444444 # = 0x10000 / 360
                 RY /= -182.04444444444444444444
                 RZ /= 182.04444444444444444444
@@ -1828,70 +1782,15 @@ class F3DZEX:
                 log.trace(f"limb: {bIndx} XIdx: {rot_indexx} {rot_indx} YIdx: {rot_indexy} {rot_indy} ZIdx: {rot_indexz} {rot_indz} frameTotal: {frameTotal}")
                 log.trace(f"limb: {bIndx} RX {int(RX)} RZ {int(RZ)} RY {int(RY)} anim: {currentanim+1} frame: {frame+1} frameTotal: {frameTotal}")
                 if (bIndx > -1):
-                    bone = armature.data.bones[f"limb_{bIndx:02}"]
                     poseBone = armature.pose.bones[f"limb_{bIndx:02}"]
-                    bone.select = True
+                    poseBone.bone.select = True
                     bpy.ops.transform.rotate(value = -RXX, orient_axis="X")
                     bpy.ops.transform.rotate(value = -RZZ, orient_axis="Z")
                     bpy.ops.transform.rotate(value = -RYY, orient_axis="Y")
                     poseBone.keyframe_insert(data_path="rotation_quaternion", frame=frame+1)
                     bpy.ops.pose.select_all(action="DESELECT")
 
-            bone = armature.pose.bones["limb_00"]
-            bone.location += Vector((newLocx,newLocz,-newLocy))
-            bone.keyframe_insert(data_path="location", frame=frame+1)
-
-            ### Could have done some math here but... just reverse previus frame, so it just repose.
-            ### TODO: Is this really just reversing what we just did? There has to be a better way.
-
-            bone = armature.pose.bones["limb_00"]
-            bone.location -= Vector((newLocx,newLocz,-newLocy))
-
-            for i in range(BoneCountMax):
-                bIndx = i
-
-                if RotIndexoffset + (bIndx * 6) + 10 + 2 > len(segment[AniSeg]):
-                    log.trace(f"Ignoring bone {bIndx} in animation {anim_to_play}, rotation table does not have that many entries") 
-                    continue
-
-                rot_indexx = unpack_from(">h", segment[AniSeg], RotIndexoffset + (bIndx * 6) + 6)[0]
-                rot_indexy = unpack_from(">h", segment[AniSeg], RotIndexoffset + (bIndx * 6) + 8)[0]
-                rot_indexz = unpack_from(">h", segment[AniSeg], RotIndexoffset + (bIndx * 6) + 10)[0]
-
-                rot_indx = rot_indexx
-                rot_indy = rot_indexy
-                rot_indz = rot_indexz
-
-                if (rot_indx > Limit):
-                    rot_indx += frame
-                if (rot_indy > Limit):
-                    rot_indy += frame
-                if (rot_indz > Limit):
-                    rot_indz += frame
-
-                RX = rot_vals(rot_indx, False)
-                RY = rot_vals(rot_indz, False)
-                RZ = rot_vals(rot_indy, False)
-
-                if RX is False or RY is False or RZ is False:
-                    log.trace(f"Ignoring bone {bIndx} in animation {anim_to_play}, rotation table did not have the entry")
-                    continue
-
-                RX /= -182.04444444444444444444
-                RY /= 182.04444444444444444444
-                RZ /= -182.04444444444444444444
-
-                RXX = radians(RX)
-                RYY = radians(RY)
-                RZZ = radians(RZ)
-
-                log.trace(f"limb: {i} XIdx: {rot_indexx} {rot_indx} YIdx: {rot_indexy} {rot_indy} ZIdx: {rot_indexz} {rot_indz} frameTotal: {frameTotal}")
-                log.trace(f"limb: {bIndx} RX {int(RX)} RZ {int(RZ)} RY {int(RY)} anim: {currentanim+1} frame: {frame+1} frameTotal: {frameTotal}")
-                if (bIndx > -1):
-                    bone = armature.data.bones[f"limb_{bIndx:02}"]
-                    bone.select = True
-                    bpy.ops.transform.rotate(value = -RYY, orient_axis="Y")
-                    bpy.ops.transform.rotate(value = -RZZ, orient_axis="Z")
-                    bpy.ops.transform.rotate(value = -RXX, orient_axis="X")
-                    bpy.ops.pose.select_all(action="DESELECT")
-
+            for bone in armature.data.bones:
+                bone.select = True
+            bpy.ops.pose.transforms_clear()
+            bpy.ops.pose.select_all(action="DESELECT")

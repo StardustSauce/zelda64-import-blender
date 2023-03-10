@@ -1645,14 +1645,13 @@ class F3DZEX:
                 RZZ = radians(RY)
 
                 log.trace(f"limb: {bIndx} RX {int(RXX)} RZ {int(RZZ)} RY {int(RYY)} anim: {currentanim+1} frame: {frame+1}")
-                if (i > -1):
-                    poseBone = armature.pose.bones[f"limb_{bIndx:02}"]
-                    poseBone.bone.select = True
-                    bpy.ops.transform.rotate(value = -RXX, orient_axis="X")
-                    bpy.ops.transform.rotate(value = -RZZ, orient_axis="Z")
-                    bpy.ops.transform.rotate(value = -RYY, orient_axis="Y")
-                    poseBone.keyframe_insert(data_path="rotation_quaternion", frame=frame+1)
-                    bpy.ops.pose.select_all(action="DESELECT")
+                poseBone = armature.pose.bones[f"limb_{bIndx:02}"]
+                poseBone.bone.select = True
+                bpy.ops.transform.rotate(value = -RXX, orient_axis="X")
+                bpy.ops.transform.rotate(value = -RZZ, orient_axis="Z")
+                bpy.ops.transform.rotate(value = -RYY, orient_axis="Y")
+                poseBone.keyframe_insert(data_path="rotation_quaternion", frame=frame+1)
+                bpy.ops.pose.select_all(action="DESELECT")
 
             bone = armature.bones["limb_00"]
             bone.location += Vector((newLocx,newLocz,-newLocy)) ## Translations

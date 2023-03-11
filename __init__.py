@@ -122,7 +122,7 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
                                  default=True,)
     enable_tex_clamp_blender: BoolProperty(name="Texture Clamp",
                                  description="Enable texture clamping in Blender, used by Blender in the 3d viewport and by zzconvert",
-                                 default=False,)
+                                 default=False,) # TODO: This varies per material. There must be a way generate this information.
     replicate_tex_mirror_blender: BoolProperty(name="Texture Mirror",
                                   description="Replicate texture mirroring by writing the textures with the mirrored parts (with double width/height) instead of the initial texture",
                                   default=False,)

@@ -44,11 +44,9 @@ class Tile:
         self.palette = 0x00000000
 
     def getFormatName(self):
-        formats = ["RGBA","YUV","CI","IA","I"]
-        sizes = ["4","8","16","32"]
-        format = formats[self.texFmt] if self.texFmt < len(formats) else "UnkFmt"
-        size = sizes[self.texSiz] if self.texSiz < len(sizes) else "_UnkSiz"
-        return f"{format}{size}"
+        formats = {0: "RGBA", 1: "YUV", 2: "CI", 3: "IA", 4: "I"}
+        sizes = {0: "4", 1: "8", 2: "16", 3: "32"}
+        return f"{formats.get(self.texFmt, 'UnkFmt')}{sizes.get(self.texSiz, '_UnkSiz')}"
 
     def create(
             self,
@@ -144,31 +142,28 @@ class Tile:
                     os.rename(oldName, newName)
                     self.current_texture_file_path = newName
         try:
-            # TODO: Investigate whether Texture is needed anymore
-            tex_name = f"{prefix}tex_{fmtName}_{self.data:08X}"
-            # tex = bpy.data.textures.new(name=tex_name, type="IMAGE")
             img = load_image(self.current_texture_file_path)
-            if img:
-                # tex.image = img
-                if int(self.clip.x) & 2 != 0 and enable_blender_clamp:
-                    img.use_clamp_x = True
-                if int(self.clip.y) & 2 != 0 and enable_blender_clamp:
-                    img.use_clamp_y = True
 
             mtl_name = f"{prefix}mtl_{self.data:08X}"
             material = bpy.data.materials.new(name=mtl_name)
             material.use_nodes = True
 
             bsdf = PrincipledBSDFWrapper(material, is_readonly=False)
-            bsdf.base_color_texture.image = None
+            bsdf.base_color_texture.image = img
+
+            bsdf_node = bsdf.node_principled_bsdf
+            tex_node = bsdf.base_color_texture.node_image
+
+            if img:
+                if int(self.clip.x) & 2 != 0 and enable_blender_clamp:
+                    tex_node.extension = "EXTEND"
+                if int(self.clip.y) & 2 != 0 and enable_blender_clamp:
+                    tex_node.extension = "EXTEND"
 
             if use_transparency:
                 material.blend_method = "HASHED"
                 links = material.node_tree.links
-                links.new(
-                    bsdf.base_color_texture.node_image.outputs["Alpha"],
-                    bsdf.node_principled_bsdf.inputs["Alpha"]
-                )
+                links.new(tex_node.outputs["Alpha"], bsdf_node.inputs["Alpha"])
                 
             return material
             
@@ -508,14 +503,12 @@ class Mesh:
             new_face = bm.faces.new([verts[x] for x in face])
             new_face.smooth = smooth
 
-            # TODO: Figure out what this material nonsense is
             material = uv_set[0]
             if material:
                 if material.name not in me.materials:
                     me.materials.append(material)
-                # material.node_tree.nodes.get("Image Texture").image = 
-
-                # uvd_uv.image = material.texture_slots[0].texture.image
+                index = [x.name for x in me.materials].index(material.name)
+                new_face.material_index = index
 
             for loop, color, uv in zip(new_face.loops, color_set, uv_set[1:]):
                 loop[color_layer] = color

@@ -1,8 +1,6 @@
 # zelda64-import-blender
 
-This is a Blender addon allowing to import models and animations from files extracted from N64 Zelda roms.
-
-**Required Blender version: 2.79 or earlier**
+This is a Blender addon allowing to import models and animations from files extracted from N64 Zelda roms, updated for use in modern versions of blender.
 
 **You should open the system console** (`Window > Toggle System Console` in Blender) before importing an object so you can see the progress being made, as the Blender UI freezes during the import process.
 
@@ -13,6 +11,8 @@ The messages in the system console may also help understand why an import is fai
 For some reason the animations for the Bari (jellyfish in jabujabu) don't import.
 
 Importing Link's animations may be broken.
+
+**This update is currently still in progress. Not all features may be available.**
 
 # Data from other segments
 

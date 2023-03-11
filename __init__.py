@@ -2,6 +2,7 @@
 # Import models from Zelda64 files into Blender
 # Copyright (C) 2013 SoulofDeity
 # Copyright (C) 2020 Dragorn421
+# Copyright (C) 2023 StardustSauce
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License as published by
@@ -18,16 +19,17 @@
 
 bl_info = {
     "name":        "Zelda64 Importer",
+    "description": "Import Zelda64 for Blender 2.8+",
     "version":     (3, 0),
     "author":      "SoulofDeity",
     "blender":     (2, 80, 0),
     "location":    "File > Import-Export",
-    "description": "Import Zelda64 - updated in 2020",
     "warning":     "",
-    "wiki_url":    "https://github.com/Dragorn421/zelda64-import-blender",
-    "tracker_url": "https://github.com/Dragorn421/zelda64-import-blender",
+    "wiki_url":    "https://github.com/StardustSauce/zelda64-import-blender",
+    "tracker_url": "https://github.com/StardustSauce/zelda64-import-blender",
     "support":     "COMMUNITY",
-    "category":    "Import-Export"}
+    "category":    "Import-Export"
+}
 
 """Anim stuff: RodLima http://www.facebook.com/rod.lima.96?ref=tn_tnmn"""
 
@@ -418,13 +420,13 @@ class ZOBJ_PT_import_logging(bpy.types.Panel):
 def menu_func_import(self, context):
     self.layout.operator(ImportZ64.bl_idname, text="Zelda64 (.zobj;.zroom;.zmap)")
 
-classes = [
+classes = (
     ImportZ64,
     ZOBJ_PT_import_config,
     ZOBJ_PT_import_texture,
     ZOBJ_PT_import_animation,
     ZOBJ_PT_import_logging
-]
+)
 
 def register():
     registerLogging()

@@ -227,8 +227,9 @@ class Tile:
             lineShift = 2
         else:
             log.warning(f"Unknown format for texture {self.current_texture_file_path} texFmt {self.texFmt} texSiz {self.texSiz}")
-        line_size = [self.lineSize << lineShift, 0]
-        self.lineSize = line_size[0]
+        
+        self.lineSize << lineShift
+        line_size = [self.lineSize, 0]
         tile_size = (self.rect.z - self.rect.x + 1, self.rect.w - self.rect.y + 1)
         mask_size = [1 << int(v) for v in self.mask]
 

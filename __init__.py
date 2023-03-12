@@ -138,9 +138,6 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
     # enable_shadeless_materials: BoolProperty(name="Shadeless Materials",
     #                               description="Set materials to be shadeless, prevents using environment colors in-game",
     #                               default=False,)
-    enable_toon: BoolProperty(name="Toony UVs",
-                             description="Obtain a toony effect by not scaling down the uv coords",
-                             default=False,)
     original_object_scale: IntProperty(name="File Scale", # TODO: Ground this in a Unit system
                              description="Scale of imported object, blender model will be scaled 1/(file scale) (use 1 for maps, actors are usually 100, 10 or 1) (0 defaults to 1 for maps and 100 for actors)",
                              default=0, min=0, soft_max=1000)
@@ -282,9 +279,6 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
                 for area in screen.areas:
                     if area.type == "VIEW_3D":
                         if importType == "ROOM":
-                            area.spaces.active.grid_lines = 500
-                            area.spaces.active.grid_scale = 10
-                            area.spaces.active.grid_subdivisions = 10
                             area.spaces.active.clip_end = 900000
                         area.spaces.active.shading.type = "MATERIAL"
 
@@ -321,7 +315,6 @@ class ZOBJ_PT_import_config(bpy.types.Panel):
         layout.prop(operator, "load_other_segments")
         layout.prop(operator, "original_object_scale")
         layout.prop(operator, "enable_matrices")
-        layout.prop(operator, "enable_toon")
         layout.prop(operator, "prefix_multi_import")
         layout.prop(operator, "set_view_3d_parameters")
 

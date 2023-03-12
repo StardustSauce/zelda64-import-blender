@@ -58,29 +58,30 @@ class Tile:
             enable_blender_clamp,
             export_textures,
             fpath,
-            prefix=""):
+            prefix=""
+        ):
         # TODO: texture files are written several times, at each usage
         log = getLogger("Tile.create")
         fmtName = self.getFormatName()
         #Noka here
-        extrastring = ""
+        suffix = ""
         w = self.rWidth
         if int(self.clip.x) & 1 != 0:
             if replicate_tex_mirror_blender:
                 w <<= 1
             if enable_mirror_tags:
-                extrastring += "#MirrorX"
+                suffix += "#MirrorX"
         h = self.rHeight
         if int(self.clip.y) & 1 != 0:
             if replicate_tex_mirror_blender:
                 h <<= 1
             if enable_mirror_tags:
-                extrastring += "#MirrorY"
+                suffix += "#MirrorY"
         if int(self.clip.x) & 2 != 0 and enable_clamp_tags:
-            extrastring += "#ClampX"
+            suffix += "#ClampX"
         if int(self.clip.y) & 2 != 0 and enable_clamp_tags:
-            extrastring += "#ClampY"
-        self.current_texture_file_path = f"{fpath}/textures/{prefix}{fmtName}_{self.data:08X}{f'_pal{self.palette:08X}' if self.texFmt == 2 else ''}{extrastring}.tga"
+            suffix += "#ClampY"
+        self.current_texture_file_path = f"{fpath}/textures/{prefix}{fmtName}_{self.data:08X}{f'_pal{self.palette:08X}' if self.texFmt == 2 else ''}{suffix}.tga"
         if export_textures: # FIXME: exportTextures == False breaks the script
             try:
                 os.mkdir(fpath + "/textures")
@@ -91,47 +92,48 @@ class Tile:
                 pass
             if not os.path.isfile(self.current_texture_file_path):
                 log.debug(f"Writing texture {self.current_texture_file_path} (format 0x{self.texFmt:02X})")
-                file = open(self.current_texture_file_path, "wb")
-                self.write_error_encountered = False
-                if self.texFmt == 2:
-                    if self.texSiz not in (0, 1):
-                        log.error(f"Unknown texture format {self.texFmt} with pixel size {self.texSiz}")
-                    p = 16 if self.texSiz == 0 else 256
-                    file.write(pack("<BBBHHBHHHHBB",
-                        0,  # image comment length
-                        1,  # 1 = paletted
-                        1,  # 1 = indexed uncompressed colors
-                        0,  # index of first palette entry (?)
-                        p,  # amount of entries in palette
-                        32, # bits per pixel
-                        0,  # bottom left X (?)
-                        0,  # bottom left Y (?)
-                        w,  # width
-                        h,  # height
-                        8,  # pixel depth
-                        8   # 8 bits alpha hopefully?
-                    ))
-                    self.writePalette(file, segment, p)
-                else:
-                    file.write(pack("<BBBHHBHHHHBB",
-                        0, # image comment length
-                        0, # no palette
-                        2, # uncompressed Truecolor (24-32 bits)
-                        0, # irrelevant, no palette
-                        0, # irrelevant, no palette
-                        0, # irrelevant, no palette
-                        0, # bottom left X (?)
-                        0, # bottom left Y (?)
-                        w, # width
-                        h, # height
-                        32,# pixel depth
-                        8  # 8 bits alpha (?)
-                    ))
-                if int(self.clip.y) & 1 != 0 and replicate_tex_mirror_blender:
-                    self.writeImageData(file, segment, replicate_tex_mirror_blender, True)
-                else:
-                    self.writeImageData(file, segment, replicate_tex_mirror_blender)
-                file.close()
+                with open(self.current_texture_file_path, "wb") as file:
+                    self.write_error_encountered = False
+                    if self.texFmt == 2:
+                        if self.texSiz not in (0, 1):
+                            log.error(f"Unknown texture format {self.texFmt} with pixel size {self.texSiz}")
+                        p = 16 if self.texSiz == 0 else 256
+                        file.write(pack("<BBBHHBHHHHBB",
+                            0,  # image comment length
+                            1,  # 1 = paletted
+                            1,  # 1 = indexed uncompressed colors
+                            0,  # index of first palette entry (?)
+                            p,  # amount of entries in palette
+                            32, # bits per pixel
+                            0,  # bottom left X (?)
+                            0,  # bottom left Y (?)
+                            w,  # width
+                            h,  # height
+                            8,  # pixel depth
+                            8   # 8 bits alpha hopefully?
+                        ))
+                        self.writePalette(file, segment, p)
+                    else:
+                        file.write(pack("<BBBHHBHHHHBB",
+                            0, # image comment length
+                            0, # no palette
+                            2, # uncompressed Truecolor (24-32 bits)
+                            0, # irrelevant, no palette
+                            0, # irrelevant, no palette
+                            0, # irrelevant, no palette
+                            0, # bottom left X (?)
+                            0, # bottom left Y (?)
+                            w, # width
+                            h, # height
+                            32,# pixel depth
+                            8  # 8 bits alpha (?)
+                        ))
+                    self.writeImageData(
+                        file,
+                        segment,
+                        replicate_tex_mirror_blender,
+                        int(self.clip.y) & 1 != 0 and replicate_tex_mirror_blender
+                    )
                 if self.write_error_encountered:
                     oldName = self.current_texture_file_path
                     oldNameDir, oldNameBase = os.path.split(oldName)
@@ -292,15 +294,13 @@ class Tile:
             self.shift.y /= 1 << int(self.tshift.y)
         self.ratio.x = (self.scale.x * self.shift.x) / self.rWidth
         
-        if not enable_toon:
-            self.ratio.x /= 32;
+        self.ratio.x /= 32;
         if int(self.clip.x) & 1 != 0 and replicate_tex_mirror_blender:
             self.ratio.x /= 2
         self.offset.x = self.rect.x
         self.ratio.y = (self.scale.y * self.shift.y) / self.rHeight
         
-        if not enable_toon:
-            self.ratio.y /= 32;
+        self.ratio.y /= 32;
         if int(self.clip.y) & 1 != 0 and replicate_tex_mirror_blender:
             self.ratio.y /= 2
         self.offset.y = 1.0 + self.rect.y
@@ -324,10 +324,6 @@ class Tile:
 
     def writeImageData(self, file, segment, replicate_tex_mirror_blender, fy=False, df=False):
         log = getLogger("Tile.writeImageData")
-        if fy == True:
-            dir = (0, self.rHeight, 1)
-        else:
-            dir = (self.rHeight - 1, -1, -1)
         if self.texSiz <= 3:
             bpp = (0.5,1,2,4)[self.texSiz] # bytes (not bits) per pixel
         else:
@@ -361,7 +357,7 @@ class Tile:
             self.write_error_encountered = True
             return
         seg, offset = splitOffset(self.data)
-        for i in range(dir[0], dir[1], dir[2]):
+        for i in range(self.rHeight) if fy else reversed(range(self.rHeight)):
             off = offset + int(i * lineSize)
             line = []
             j = 0
@@ -431,10 +427,7 @@ class Tile:
                 else:
                     file.write(pack(">" + "L" * len(line), *line))
         if int(self.clip.y) & 1 != 0 and df == False and replicate_tex_mirror_blender:
-            if fy == True:
-                self.writeImageData(file, segment, False, True)
-            else:
-                self.writeImageData(file, segment, True, True)
+            self.writeImageData(file, segment, not fy, True)
 
 
 class Vertex:
@@ -625,8 +618,7 @@ class Hierarchy:
         rx, ry, rz = 90,0,0
         if (bpy.context.active_object):
             bpy.ops.object.mode_set(mode="OBJECT", toggle=False)
-        for i in bpy.context.selected_objects:
-            i.select_set(False)
+        bpy.ops.object.select_all(action="DESELECT")
         self.armature = bpy.data.objects.new(self.name, bpy.data.armatures.new(f"{self.name}_armature"))
         self.armature.show_in_front = True
         self.armature.data.display_type = "STICK"
@@ -674,7 +666,7 @@ class F3DZEX:
 
         self.use_transparency = detected_display_lists_use_transparency
         self.alreadyRead = []
-        self.segment, self.vbuf, self.tile  = [], [], []
+        self.segment, self.vbuf, self.tile = [], [], []
         self.geometryModeFlags = set()
 
         self.animTotal = 0
@@ -705,18 +697,16 @@ class F3DZEX:
             self.displaylists = []
             return
         try:
-            file = open(path)
-            self.displaylists = file.readlines()
-            file.close()
+            with open(path, "r") as file:
+                self.displaylists = file.readlines()
             log.info("Loaded the display list list successfully!")
         except:
             log.exception("Could not read displaylists.txt")
 
     def loadSegment(self, seg, path):
         try:
-            file = open(path, "rb")
-            self.segment[seg] = file.read()
-            file.close()
+            with open(path, "rb") as file:
+                self.segment[seg] = file.read()
         except:
             getLogger("F3DZEX.loadSegment").error(f"Could not load segment 0x{seg:02X} data from {path}")
             pass
@@ -1117,7 +1107,6 @@ class F3DZEX:
                         anim_to_play = i + 1
                         log.info(f"   Loading animation {anim_to_play}/{len(self.animation)} 0x{self.offsetAnims[anim_to_play-1]:08X}")
                         action = bpy.data.actions.new(f"{self.prefix}anim{anim_to_play}_{self.durationAnims[i]}")
-                        # not sure what users an action is supposed to have, or what it should be linked to
                         action.use_fake_user = True
                         armature.animation_data.action = action
                         self.buildAnimation(hierarchy, anim_to_play)
@@ -1239,8 +1228,7 @@ class F3DZEX:
 
         log.debug(f"Reading dlists from 0x{segmentMask | startOffset:08X}")
         for i in range(startOffset, endOffset, 8):
-            w0 = unpack_from(">L", data, i)[0]
-            w1 = unpack_from(">L", data, i + 4)[0]
+            w0, w1 = unpack_from(">LL", data, i)
             # G_NOOP
             if data[i] == 0x00:
                 pass
@@ -1436,7 +1424,7 @@ class F3DZEX:
                     self.tile[self.curTile].texBytes = self.tile[self.curTile].size << 16 >> 15
                 self.tile[self.curTile].calculateSize(self.config["replicate_tex_mirror_blender"], self.config["enable_toon"])
             # G_LOADTILE, G_TEXRECT, G_SETZIMG, G_SETCIMG (2d "direct" drawing?)
-            elif data[i] == 0xF4 or data[i] == 0xE4 or data[i] == 0xFE or data[i] == 0xFF:
+            elif data[i] in (0xF4, 0xE4, 0xFE, 0xFF):
                 log.debug(f"0x{data[i]:X} {w0:08X} : {w1:08X}")
             # G_SETTILE
             elif data[i] == 0xF5:
@@ -1680,7 +1668,7 @@ class F3DZEX:
         Limit = unpack_from(">H", segment[AniSeg], (AnimationOffset + 12))[0] # TODO: no idea what this is
         
         frameTotal = unpack_from(">h", segment[AniSeg], (AnimationOffset))[0]
-        rot_vals_addr, RotIndexoffset = unpack_from(">L", segment[AniSeg], (AnimationOffset + 4))
+        rot_vals_addr, RotIndexoffset = unpack_from(">LL", segment[AniSeg], (AnimationOffset + 4))
 
         rot_vals_addr  &= 0xFFFFFF
         RotIndexoffset &= 0xFFFFFF

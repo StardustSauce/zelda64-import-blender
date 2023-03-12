@@ -28,8 +28,8 @@ class Tile:
     def __init__(self):
         self.current_texture_file_path = None
         self.texFmt, self.texBytes = 0x00, 0
-        self.width, self.height = 0, 0
-        self.rWidth, self.rHeight = 0, 0
+        self.dims = [0, 0]
+        self.r_dims = [0, 0]
         self.texSiz = 0
         self.lineSize = 0
         self.rect = Vector([0, 0, 0, 0])
@@ -65,13 +65,13 @@ class Tile:
         fmtName = self.getFormatName()
         #Noka here
         suffix = ""
-        w = self.rWidth
+        w = self.r_dims[0]
         if int(self.clip.x) & 1 != 0:
             if replicate_tex_mirror_blender:
                 w <<= 1
             if enable_mirror_tags:
                 suffix += "#MirrorX"
-        h = self.rHeight
+        h = self.r_dims[1]
         if int(self.clip.y) & 1 != 0:
             if replicate_tex_mirror_blender:
                 h <<= 1
@@ -173,7 +173,7 @@ class Tile:
             log.exception(f"Failed to create material mtl_{self.data:08X}")
             return None
 
-    def calculateSize(self, replicate_tex_mirror_blender, enable_toon):
+    def calculateSize(self, replicate_tex_mirror_blender):
         def pow2(val):
             i = 1
             while i < val:
@@ -227,83 +227,52 @@ class Tile:
             lineShift = 2
         else:
             log.warning(f"Unknown format for texture {self.current_texture_file_path} texFmt {self.texFmt} texSiz {self.texSiz}")
-        lineWidth = self.lineSize << lineShift
-        self.lineSize = lineWidth
-        tileWidth = self.rect.z - self.rect.x + 1
-        tileHeight = self.rect.w - self.rect.y + 1
-        maskWidth = 1 << int(self.mask.x)
-        maskHeight = 1 << int(self.mask.y)
-        lineHeight = 0
+        line_size = [self.lineSize << lineShift, 0]
+        self.lineSize = line_size[0]
+        tile_size = (self.rect.z - self.rect.x + 1, self.rect.w - self.rect.y + 1)
+        mask_size = [1 << int(v) for v in self.mask]
+
+        if line_size[0] > 0:
+            line_size[1] = min(int(maxTxl / line_size[0]), tile_size[1])
+
+        for i in range(2):
+            if self.mask[i] > 0 and (mask_size[0] * mask_size[1]) <= maxTxl:
+                self.dims[i] = mask_size[i]
+            elif (tile_size[0] * tile_size[1]) <= maxTxl:
+                self.dims[i] = tile_size[i]
+            else:
+                self.dims[i] = line_size[i]
+
+            if self.clip.x == 1:
+                clamp = tile_size[i]
+            else:
+                clamp = self.dims[i]
+
+            if mask_size[i] > self.dims[i]:
+                self.mask[i] = powof(self.dims[i])
+                mask_size[i] = 1 << int(self.mask[i])
         
-        if lineWidth > 0:
-            lineHeight = min(int(maxTxl / lineWidth), tileHeight)
-        if self.mask.x > 0 and (maskWidth * maskHeight) <= maxTxl:
-            self.width = maskWidth
-        elif (tileWidth * tileHeight) <= maxTxl:
-            self.width = tileWidth
-        else:
-            self.width = lineWidth
+            if int(self.clip[i]) & 2 != 0:
+                self.r_dims[i] = pow2(clamp)
+            elif int(self.clip[i]) & 1 != 0:
+                self.r_dims[i] = pow2(mask_size[i])
+            else:
+                self.r_dims[i] = pow2(self.dims[i])
+
+            self.shift[i] = 1.0
+
+            if self.tshift[i] > 10:
+                self.shift[i] = 1 << int(16 - self.tshift[i])
+            elif self.tshift[i] > 0:
+                self.shift[i] /= 1 << int(self.tshift[i])
         
-        if self.mask.y > 0 and (maskWidth * maskHeight) <= maxTxl:
-            self.height = maskHeight
-        elif (tileWidth * tileHeight) <= maxTxl:
-            self.height = tileHeight
-        else:
-            self.height = lineHeight
-        clampWidth, clampHeight = 0, 0
+            self.ratio[i] = (self.scale[i] * self.shift[i]) / self.r_dims[i] / 32
         
-        if self.clip.x == 1:
-            clampWidth = tileWidth
-        else:
-            clampWidth = self.width
-        if self.clip.y == 1:
-            clampHeight = tileHeight
-        else:
-            clampHeight = self.height
-        
-        if maskWidth > self.width:
-            self.mask.x = powof(self.width)
-            maskWidth = 1 << int(self.mask.x)
-        if maskHeight > self.height:
-            self.mask.y = powof(self.height)
-            maskHeight = 1 << int(self.mask.y)
-        
-        if int(self.clip.x) & 2 != 0:
-            self.rWidth = pow2(clampWidth)
-        elif int(self.clip.x) & 1 != 0:
-            self.rWidth = pow2(maskWidth)
-        else:
-            self.rWidth = pow2(self.width)
-        
-        if int(self.clip.y) & 2 != 0:
-            self.rHeight = pow2(clampHeight)
-        elif int(self.clip.y) & 1 != 0:
-            self.rHeight = pow2(maskHeight)
-        else:
-            self.rHeight = pow2(self.height)
-        self.shift.x, self.shift.y = 1.0, 1.0
-        
-        if self.tshift.x > 10:
-            self.shift.x = 1 << int(16 - self.tshift.x)
-        elif self.tshift.x > 0:
-            self.shift.x /= 1 << int(self.tshift.x)
-        
-        if self.tshift.y > 10:
-            self.shift.y = 1 << int(16 - self.tshift.y)
-        elif self.tshift.y > 0:
-            self.shift.y /= 1 << int(self.tshift.y)
-        self.ratio.x = (self.scale.x * self.shift.x) / self.rWidth
-        
-        self.ratio.x /= 32;
-        if int(self.clip.x) & 1 != 0 and replicate_tex_mirror_blender:
-            self.ratio.x /= 2
-        self.offset.x = self.rect.x
-        self.ratio.y = (self.scale.y * self.shift.y) / self.rHeight
-        
-        self.ratio.y /= 32;
-        if int(self.clip.y) & 1 != 0 and replicate_tex_mirror_blender:
-            self.ratio.y /= 2
-        self.offset.y = 1.0 + self.rect.y
+            if int(self.clip[i]) & 1 != 0 and replicate_tex_mirror_blender:
+                self.ratio[i] /= 2
+                self.offset[i] = self.rect[i]
+
+        self.offset.y += 1.0
 
     def writePalette(self, file, segment, palSize):
         log = getLogger("Tile.writePalette")
@@ -329,10 +298,10 @@ class Tile:
         else:
             log.warning(f"Unknown texSiz {self.texSiz} for texture {self.current_texture_file_path}, defaulting to 4 bytes per pixel")
             bpp = 4
-        lineSize = self.rWidth * bpp
+        lineSize = self.r_dims[0] * bpp
         writeFallbackData = False
-        if not validOffset(segment, self.data + int(self.rHeight * lineSize) - 1):
-            log.error(f"Segment offsets 0x{self.data:X}-0x{self.data + int(self.rHeight * lineSize) - 1:X} are invalid, writing default fallback colors to {self.current_texture_file_path} (has the segment data been loaded?)")
+        if not validOffset(segment, self.data + int(self.r_dims[1] * lineSize) - 1):
+            log.error(f"Segment offsets 0x{self.data:X}-0x{self.data + int(self.r_dims[1] * lineSize) - 1:X} are invalid, writing default fallback colors to {self.current_texture_file_path} (has the segment data been loaded?)")
             writeFallbackData = True
         if (self.texFmt,self.texSiz) not in (
             (0,2), (0,3), # RGBA16, RGBA32
@@ -344,7 +313,7 @@ class Tile:
             log.error(f"Unknown fmt/siz combination {self.texFmt}/{self.texSiz} ({self.getFormatName()}?)")
             writeFallbackData = True
         if writeFallbackData:
-            size = self.rWidth * self.rHeight
+            size = self.r_dims[0] * self.r_dims[1]
             if int(self.clip.x) & 1 != 0 and replicate_tex_mirror_blender:
                 size *= 2
             if int(self.clip.y) & 1 != 0 and replicate_tex_mirror_blender:
@@ -357,11 +326,11 @@ class Tile:
             self.write_error_encountered = True
             return
         seg, offset = splitOffset(self.data)
-        for i in range(self.rHeight) if fy else reversed(range(self.rHeight)):
+        for i in range(self.r_dims[1]) if fy else reversed(range(self.r_dims[1])):
             off = offset + int(i * lineSize)
             line = []
             j = 0
-            while j < int(self.rWidth * bpp):
+            while j < int(self.r_dims[0] * bpp):
                 if bpp < 2: # 0.5, 1
                     color = unpack_from("B", segment[seg], off + int(floor(j)))[0]
                     if bpp == 0.5:
@@ -1417,12 +1386,12 @@ class F3DZEX:
                 self.tile[self.curTile].rect.y = (w0 & 0x00000FFF) >> 2
                 self.tile[self.curTile].rect.z = (w1 & 0x00FFF000) >> 14
                 self.tile[self.curTile].rect.w = (w1 & 0x00000FFF) >> 2
-                self.tile[self.curTile].width = (self.tile[self.curTile].rect.z - self.tile[self.curTile].rect.x) + 1
-                self.tile[self.curTile].height = (self.tile[self.curTile].rect.w - self.tile[self.curTile].rect.y) + 1
-                self.tile[self.curTile].texBytes = int(self.tile[self.curTile].width * self.tile[self.curTile].height) << 1
+                self.tile[self.curTile].dims[0] = (self.tile[self.curTile].rect.z - self.tile[self.curTile].rect.x) + 1
+                self.tile[self.curTile].dims[1] = (self.tile[self.curTile].rect.w - self.tile[self.curTile].rect.y) + 1
+                self.tile[self.curTile].texBytes = int(self.tile[self.curTile].dims[0] * self.tile[self.curTile].dims[1]) << 1
                 if (self.tile[self.curTile].texBytes >> 16) == 0xFFFF:
                     self.tile[self.curTile].texBytes = self.tile[self.curTile].size << 16 >> 15
-                self.tile[self.curTile].calculateSize(self.config["replicate_tex_mirror_blender"], self.config["enable_toon"])
+                self.tile[self.curTile].calculateSize(self.config["replicate_tex_mirror_blender"])
             # G_LOADTILE, G_TEXRECT, G_SETZIMG, G_SETCIMG (2d "direct" drawing?)
             elif data[i] in (0xF4, 0xE4, 0xFE, 0xFF):
                 log.debug(f"0x{data[i]:X} {w0:08X} : {w1:08X}")

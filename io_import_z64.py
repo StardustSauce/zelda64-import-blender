@@ -271,7 +271,7 @@ class Tile:
         
             if int(self.clip[i]) & 1 != 0 and replicate_tex_mirror_blender:
                 self.ratio[i] /= 2
-                self.offset[i] = self.rect[i]
+            self.offset[i] = self.rect[i]
 
         self.offset.y += 1.0
 

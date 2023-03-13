@@ -279,7 +279,7 @@ class Tile:
         log = getLogger("Tile.writePalette")
         if not validOffset(segment, self.palette + palSize * 2 - 1):
             log.error(f"Segment offsets 0x{self.palette:X}-0x{self.palette + palSize * 2 - 1:X} are invalid, writing black palette to {self.current_texture_file_path} (has the segment data been loaded?)")
-            for i in range(palSize):
+            for _ in range(palSize):
                 file.write(pack("L", 0))
             self.write_error_encountered = True
             return
@@ -319,7 +319,7 @@ class Tile:
                 size *= 2
             if int(self.clip.y) & 1 != 0 and replicate_tex_mirror_blender:
                 size *= 2
-            for i in range(size):
+            for _ in range(size):
                 if self.texFmt == 2: # CI (paletted)
                     file.write(pack("B", 0))
                 else:
@@ -414,19 +414,14 @@ class Vertex:
             log.warning(f"Invalid segmented offset 0x{offset + 16:X} for vertex")
             return
         seg, offset = splitOffset(offset)
-        self.pos.x = unpack_from(">h", segment[seg], offset)[0]
-        self.pos.z = unpack_from(">h", segment[seg], offset + 2)[0]
-        self.pos.y = -unpack_from(">h", segment[seg], offset + 4)[0]
+        self.pos = Vector(unpack_from(">hhh", segment[seg], offset)).xzy
+        self.pos.y = -self.pos.y
         self.pos *= scale_factor
-        self.uv.x = float(unpack_from(">h", segment[seg], offset + 8)[0])
-        self.uv.y = float(unpack_from(">h", segment[seg], offset + 10)[0])
-        self.normal.x = unpack_from("b", segment[seg], offset + 12)[0] / 128
-        self.normal.z = unpack_from("b", segment[seg], offset + 13)[0] / 128
-        self.normal.y = -unpack_from("b", segment[seg], offset + 14)[0] / 128
-        self.color[0] = min(segment[seg][offset + 12] / 255, 1.0)
-        self.color[1] = min(segment[seg][offset + 13] / 255, 1.0)
-        self.color[2] = min(segment[seg][offset + 14] / 255, 1.0)
-        self.color[3] = min(segment[seg][offset + 15] / 255, 1.0)
+        self.uv = Vector(unpack_from(">hh", segment[seg], offset + 8))
+        self.normal = Vector(unpack_from("bbb", segment[seg], offset + 12)).xzy
+        self.normal.y = -self.normal.y
+        self.normal /= 128
+        self.color = [min(segment[seg][offset + 12 + i] / 255, 1.0) for i in range(4)]
 
 
 class Mesh:
@@ -530,18 +525,13 @@ class Limb:
         rot_offset = offset & 0xFFFFFF
         rot_offset += (0 * (BoneCount * 6 + 8));
 
-        self.pos.x = unpack_from(">h", segment[seg], offset)[0]
-        self.pos.z = unpack_from(">h", segment[seg], offset + 2)[0]
-        self.pos.y = -unpack_from(">h", segment[seg], offset + 4)[0]
+        self.pos = Vector(unpack_from(">hhh", segment[seg], offset)).xzy
+        self.pos.y = -self.pos.y
         self.pos *= scale_factor
-        self.child = unpack_from("b", segment[seg], offset + 6)[0]
-        self.sibling = unpack_from("b", segment[seg], offset + 7)[0]
-        self.near = unpack_from(">L", segment[seg], offset + 8)[0]
-        self.far = unpack_from(">L", segment[seg], offset + 12)[0]
+        self.child, self.sibling = unpack_from("bb", segment[seg], offset + 6)
+        self.near, self.far = unpack_from(">LL", segment[seg], offset + 8)
 
-        self.poseLoc.x = unpack_from(">h", segment[seg], rot_offset)[0]
-        self.poseLoc.z = unpack_from(">h", segment[seg], rot_offset + 2)[0]
-        self.poseLoc.y = unpack_from(">h", segment[seg], rot_offset + 4)[0]
+        self.poseLoc = Vector(unpack_from(">hhh", segment[seg], rot_offset))
         getLogger("Limb.read").trace(f"      Limb {actuallimb!r}: {self.poseLoc.x:f},{self.poseLoc.z:f},{self.poseLoc.y:f}")
 
 class Hierarchy:
@@ -644,14 +634,14 @@ class F3DZEX:
         self.TimeLinePosition = 0
         self.displaylists = []
 
-        for i in range(16):
+        for _ in range(16):
             self.alreadyRead.append([])
             self.segment.append([])
             self.vbuf.append(Vertex())
-        for i in range(2):
+        for _ in range(2):
             self.tile.append(Tile())
             pass#self.vbuf.append(Vertex())
-        for i in range(14 + 32):
+        for _ in range(14 + 32):
             pass#self.vbuf.append(Vertex())
         while len(self.vbuf) < 32:
             self.vbuf.append(Vertex())
@@ -930,11 +920,10 @@ class F3DZEX:
                         continue
                     log.info(f"Reading {count} display lists from 0x{start:X} to 0x{end:X}")
                     for j in range(start, end, 8):
-                        opa = unpack_from(">L", data, j)[0]
+                        opa, xlu = unpack_from(">LL", data, j)
                         if opa:
                             self.use_transparency = False
                             self.buildDisplayList(None, [None], opa, mesh_name_format="%s_opa")
-                        xlu = unpack_from(">L", data, j+4)[0]
                         if xlu:
                             self.use_transparency = True
                             self.buildDisplayList(None, [None], xlu, mesh_name_format="%s_xlu")
@@ -943,11 +932,10 @@ class F3DZEX:
                     entrySeg = data[mho+4]
                     entry = (data[mho+5] << 16) | (data[mho+6] << 8) | data[mho+7]
                     if entrySeg == 0x03:
-                        opa = unpack_from(">L", data, entry)[0]
+                        opa, xlu = unpack_from(">LL", data, entry)
                         if opa:
                             self.use_transparency = False
                             self.buildDisplayList(None, [None], opa, mesh_name_format="%s_opa")
-                        xlu = unpack_from(">L", data, entry+4)[0]
                         if xlu:
                             self.use_transparency = True
                             self.buildDisplayList(None, [None], xlu, mesh_name_format="%s_xlu")
@@ -995,11 +983,10 @@ class F3DZEX:
                         continue
                     log.info(f"Reading {count} display lists from 0x{start:X} to 0x{end:X}")
                     for j in range(start, end, 16):
-                        opa = unpack_from(">L", data, j+8)[0]
+                        opa, xlu = unpack_from(">LL", data, j+8)
                         if opa:
                             self.use_transparency = False
                             self.buildDisplayList(None, [None], opa, mesh_name_format="%s_opa")
-                        xlu = unpack_from(">L", data, j+12)[0]
                         if xlu:
                             self.use_transparency = True
                             self.buildDisplayList(None, [None], xlu, mesh_name_format="%s_xlu")
@@ -1217,14 +1204,14 @@ class F3DZEX:
                 try:
                     index = ((data[i + 2] & 0x0F) << 3) | (data[i + 3] >> 1)
                     if data[i + 1] == 0x10:
-                        self.vbuf[index].normal.x = unpack_from("b", data, i + 4)[0] / 128
-                        self.vbuf[index].normal.z = unpack_from("b", data, i + 5)[0] / 128
-                        self.vbuf[index].normal.y = -unpack_from("b", data, i + 6)[0] / 128
-                        # wtf? BBBB pattern and [0]
+                        # TODO: This pattern appears frequently. Make a function for it.
+                        self.vbuf[index].normal = Vector(unpack_from("bbb", data, i + 4)).xzy
+                        self.vbuf[index].normal.y = -self.vbuf[index].normal.y
+                        self.vbuf[index].normal /= 128
+                        # FIXME: BBBB pattern and [0]? This must be a mistake. Investigate further.
                         self.vbuf[index].color = unpack_from("BBBB", data, i + 4)[0] / 255
                     elif data[i + 1] == 0x14:
-                        self.vbuf[index].uv.x = float(unpack_from(">h", data, i + 4)[0])
-                        self.vbuf[index].uv.y = float(unpack_from(">h", data, i + 6)[0])
+                        self.vbuf[index].uv = Vector(unpack_from(">hh", data, i + 4))
                 except IndexError:
                     if not extraLenient:
                         log.exception(f"Bad vertex indices in 0x02 at 0x{i:X} {w0:08X} {w1:08X}")
@@ -1574,32 +1561,24 @@ class F3DZEX:
             TRZ += unpack_from(">h", segment[S_Seg], BoneOffset + 2)[0]
             TRY += -unpack_from(">h", segment[S_Seg], BoneOffset + 4)[0]
             newLocx = TRX / 79
-            newLocz = -25.5
-            newLocz += TRZ / 79
+            newLocz = TRZ / 79
             newLocy = TRY / 79
+            newLocz -= 25.5
 
             for bIndx in reversed(range(BoneCount)): # Had to reverse here, cuz didn't find a way to rotate bones on LOCAL space, start rotating from last to first bone on hierarchy GLOBAL.
-                RX = unpack_from(">h", segment[AniSeg], rot_offset)[0]
-                rot_offset -= 2
-                RY = unpack_from(">h", segment[AniSeg], rot_offset + 4)[0]
-                rot_offset -= 2
-                RZ = unpack_from(">h", segment[AniSeg], rot_offset + 8)[0]
-                rot_offset -= 2
+                R = Vector(unpack_from(">hhh", segment[AniSeg], rot_offset))
+                rot_offset -= 6
 
-                RX /= 182.04444444444444444444 # = 0x10000 / 360
-                RY /= 182.04444444444444444444
-                RZ /= 182.04444444444444444444
+                R /= 182.04444444444444444444 # = 0x10000 / 360
 
-                RXX = radians(RX)
-                RYY = radians(-RZ)
-                RZZ = radians(RY)
+                R = Vector(radians(v) for v in R)
 
-                log.trace(f"limb: {bIndx} RX {int(RXX)} RZ {int(RZZ)} RY {int(RYY)} anim: {currentanim+1} frame: {frame+1}")
+                log.trace(f"limb: {bIndx} RX {int(R.x)} RZ {int(R.z)} RY {int(R.y)} anim: {currentanim+1} frame: {frame+1}")
                 poseBone = armature.pose.bones[f"limb_{bIndx:02}"]
                 poseBone.bone.select = True
-                bpy.ops.transform.rotate(value = -RXX, orient_axis="X")
-                bpy.ops.transform.rotate(value = -RZZ, orient_axis="Z")
-                bpy.ops.transform.rotate(value = -RYY, orient_axis="Y")
+                bpy.ops.transform.rotate(value = -R.x, orient_axis="X")
+                bpy.ops.transform.rotate(value = -R.z, orient_axis="Z")
+                bpy.ops.transform.rotate(value = -R.y, orient_axis="Y")
                 poseBone.keyframe_insert(data_path="rotation_quaternion", frame=frame+1)
                 bpy.ops.pose.select_all(action="DESELECT")
 

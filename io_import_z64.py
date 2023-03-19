@@ -81,14 +81,14 @@ class Tile:
             suffix += "#ClampX"
         if int(self.clip.y) & 2 != 0 and enable_clamp_tags:
             suffix += "#ClampY"
-        self.current_texture_file_path = f"{fpath}/textures/{prefix}{fmtName}_{self.data:08X}{f'_pal{self.palette:08X}' if self.texFmt == 2 else ''}{suffix}.tga"
+        self.current_texture_file_path = os.path.join(fpath, "textures", f"{prefix}{fmtName}_{self.data:08X}{f'_pal{self.palette:08X}' if self.texFmt == 2 else ''}{suffix}.tga")
         if export_textures: # FIXME: exportTextures == False breaks the script
             try:
-                os.mkdir(fpath + "/textures")
+                os.mkdir(os.path.join(fpath, "textures"))
             except FileExistsError:
                 pass
             except:
-                log.exception(f"Could not create textures directory {fpath}/textures")
+                log.exception(f"Could not create textures directory {os.path.join(fpath, 'textures')}")
                 pass
             if not os.path.isfile(self.current_texture_file_path):
                 log.debug(f"Writing texture {self.current_texture_file_path} (format 0x{self.texFmt:02X})")
@@ -137,7 +137,7 @@ class Tile:
                 if self.write_error_encountered:
                     oldName = self.current_texture_file_path
                     oldNameDir, oldNameBase = os.path.split(oldName)
-                    newName = f"{oldNameDir}/{prefix}fallback_{oldNameBase}"
+                    newName = os.path.join(oldNameDir, f"{prefix}fallback_{oldNameBase}")
                     log.warning(f"Moving failed texture file import from {oldName} to {newName}")
                     if os.path.isfile(newName):
                         os.remove(newName)
@@ -156,15 +156,30 @@ class Tile:
             bsdf_node = bsdf.node_principled_bsdf
             tex_node = bsdf.base_color_texture.node_image
 
-            if img:
-                if int(self.clip.x) & 2 != 0 and enable_blender_clamp:
-                    tex_node.extension = "EXTEND"
-                if int(self.clip.y) & 2 != 0 and enable_blender_clamp:
-                    tex_node.extension = "EXTEND"
+            nodes = material.node_tree.nodes
+            links = material.node_tree.links
+
+            if enable_blender_clamp:
+                tex_node.extension = "EXTEND"
+                coordinate_node = nodes.new(type="ShaderNodeTexCoord")
+                separate_node = nodes.new(type="ShaderNodeSeparateXYZ")
+                combine_node = nodes.new(type="ShaderNodeCombineXYZ")
+                links.new(coordinate_node.outputs["UV"], separate_node.inputs["Vector"])
+                links.new(separate_node.outputs["Z"], combine_node.inputs["Z"])
+                links.new(combine_node.outputs["Vector"], tex_node.inputs["Vector"])
+                for i, dimension in enumerate(("X", "Y")):
+                    if int(self.clip[i]) & 2 == 0:
+                        wrap_node = nodes.new(type="ShaderNodeMath")
+                        wrap_node.operation = "WRAP"
+                        wrap_node.inputs[2].default_value = 0.01 # Min Value
+                        wrap_node.inputs[1].default_value = 0.99 # Max Value
+                        links.new(separate_node.outputs[dimension], wrap_node.inputs["Value"])
+                        links.new(wrap_node.outputs["Value"], combine_node.inputs[dimension])
+                    else:
+                        links.new(separate_node.outputs[dimension], combine_node.inputs[dimension])
 
             if use_transparency:
                 material.blend_method = "HASHED"
-                links = material.node_tree.links
                 links.new(tex_node.outputs["Alpha"], bsdf_node.inputs["Alpha"])
                 
             return material
@@ -842,14 +857,15 @@ class F3DZEX:
         if jfifData is None:
             log.error(f"Did not find end marker 0xFFD9 in background image at 0x{jfifDataStart:X}")
             return False
+        texture_path = os.path.join(self.config['fpath'], "textures")
         try:
-            os.mkdir(f"{self.config['fpath']}/textures")
+            os.mkdir(texture_path)
         except FileExistsError:
             pass
         except:
-            log.exception(f"Could not create textures directory {self.config['fpath']}/textures")
+            log.exception(f"Could not create textures directory {texture_path}")
             pass
-        jfifPath = f"{self.config['fpath']}/textures/jfif_{name_format % jfifDataStart}.jfif"
+        jfifPath = os.path.join(self.config['fpath'], "textures", f"jfif_{name_format % jfifDataStart}.jfif")
         with open(jfifPath, "wb") as f:
             f.write(jfifData)
         log.info(f"Copied jfif image to {jfifPath}")

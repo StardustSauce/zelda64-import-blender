@@ -124,7 +124,7 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
                                  default=True,)
     enable_tex_clamp_blender: BoolProperty(name="Texture Clamp",
                                  description="Enable texture clamping in Blender, used by Blender in the 3d viewport and by zzconvert",
-                                 default=False,) # TODO: This varies per material. There must be a way generate this information.
+                                 default=True,)
     replicate_tex_mirror_blender: BoolProperty(name="Texture Mirror",
                                   description="Replicate texture mirroring by writing the textures with the mirrored parts (with double width/height) instead of the initial texture",
                                   default=False,)
@@ -236,11 +236,11 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
             # for segment 2, use [room file prefix]_scene then [same].zscene then segment_02.zdata then fallback to any .zscene
             scene_file = None
             if "_room" in fname:
-                scene_file = f"{fpath}/{fname[:fname.index('_room')]}_scene"
+                scene_file = os.path.join(fpath, f"{fname[:fname.index('_room')]}_scene")
                 if not os.path.isfile(scene_file):
                     scene_file += ".zscene"
             if not scene_file or not os.path.isfile(scene_file):
-                scene_file = fpath + "/segment_02.zdata"
+                scene_file = os.path.join(fpath, "segment_02.zdata")
             if not scene_file or not os.path.isfile(scene_file):
                 scene_file = None
                 for f in os.listdir(fpath):
@@ -248,7 +248,7 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
                         if scene_file:
                             log.warning(f"Found another .zscene file {f}, keeping {scene_file}")
                         else:
-                            scene_file = f"{fpath}/{f}"
+                            scene_file = os.path.join(fpath, f)
             if scene_file and os.path.isfile(scene_file):
                 log.info(f"Loading scene segment 0x02 from {scene_file}")
                 f3dzex.loadSegment(2, scene_file)
@@ -258,7 +258,7 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
                 if i == 2:
                     continue
                 # I was told this is "ZRE" naming?
-                segment_data_file = f"{fpath}/segment_{i:02X}.zdata"
+                segment_data_file = os.path.join(fpath, f"segment_{i:02X}.zdata")
                 if os.path.isfile(segment_data_file):
                     log.info(f"Loading segment 0x{i:02X} from {segment_data_file}")
                     f3dzex.loadSegment(i, segment_data_file)
@@ -340,16 +340,19 @@ class ZOBJ_PT_import_texture(bpy.types.Panel):
         operator = sfile.active_operator
 
         layout.prop(operator, "enable_tex_clamp_blender")
+        if operator.enable_tex_clamp_blender:
+            wBox = layout.box()
+            wBox.prop(operator, "enable_tex_clamp_sharp_ocarina_tags")
         layout.prop(operator, "replicate_tex_mirror_blender")
         if operator.replicate_tex_mirror_blender:
+            wBox = layout.box()
+            wBox.prop(operator, "enable_tex_mirror_sharp_ocarina_tags")
             wBox = layout.box()
             wBox.label(text="Enabling texture mirroring", icon="ERROR")
             wBox.label(text="will break exporting with", icon="BLANK1")
             wBox.label(text="SharpOcarina, and may break", icon="BLANK1")
             wBox.label(text="exporting in general with", icon="BLANK1")
             wBox.label(text="other tools.", icon="BLANK1")
-        layout.prop(operator, "enable_tex_clamp_sharp_ocarina_tags")
-        layout.prop(operator, "enable_tex_mirror_sharp_ocarina_tags")
 
         layout.separator()
 

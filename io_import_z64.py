@@ -260,7 +260,7 @@ class Tile:
             else:
                 self.dims[i] = line_size[i]
 
-            if self.clip[i] == 1:
+            if self.mirror[i] and self.wrap[i]:
                 clamp = tile_size[i]
             else:
                 clamp = self.dims[i]
@@ -1321,7 +1321,7 @@ class F3DZEX:
             elif data[i] == 0xD7:
                 log.debug("0xD7 G_TEXTURE used, but unimplemented")
                 # FIXME: ?
-#                for i in range(2):
+#                for _ in range(2):
 #                    if ((w1 >> 16) & 0xFFFF) < 0xFFFF:
 #                        self.tile[i].scale.x = ((w1 >> 16) & 0xFFFF) * 0.0000152587891
 #                    else:
@@ -1716,3 +1716,5 @@ class F3DZEX:
                 bone.select = True
             bpy.ops.pose.transforms_clear()
             bpy.ops.pose.select_all(action="DESELECT")
+        
+        print(len(self.tile))

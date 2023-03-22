@@ -116,9 +116,6 @@ class ImportZ64(bpy.types.Operator, ImportHelper):
     invert_env_color: BoolProperty(name="Invert Env Color",
                                  description="Invert environment color (temporary fix)",
                                  default=False,) # TODO: what is this?
-    export_textures: BoolProperty(name="Export Textures",
-                                 description="Export textures for the model",
-                                 default=True,)
     import_textures: BoolProperty(name="Import Textures",
                                  description="Import textures for the model",
                                  default=True,)
@@ -359,7 +356,6 @@ class ZOBJ_PT_import_texture(bpy.types.Panel):
         layout.prop(operator, "enable_prim_color")
         layout.prop(operator, "enable_env_color")
         layout.prop(operator, "invert_env_color")
-        layout.prop(operator, "export_textures")
         layout.prop(operator, "import_textures")
 
 class ZOBJ_PT_import_animation(bpy.types.Panel):

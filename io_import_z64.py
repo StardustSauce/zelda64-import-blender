@@ -57,7 +57,6 @@ class Tile:
             enable_mirror_tags,
             enable_clamp_tags, 
             enable_blender_clamp,
-            export_textures,
             fpath,
             prefix=""
         ):
@@ -83,67 +82,67 @@ class Tile:
         if not self.wrap[0] and enable_clamp_tags:
             suffix += "#ClampY"
         self.current_texture_file_path = os.path.join(fpath, "textures", f"{prefix}{fmtName}_{self.data:08X}{f'_pal{self.palette:08X}' if self.texFmt == 2 else ''}{suffix}.tga")
-        if export_textures: # FIXME: exportTextures == False breaks the script
-            try:
-                os.mkdir(os.path.join(fpath, "textures"))
-            except FileExistsError:
-                pass
-            except:
-                log.exception(f"Could not create textures directory {os.path.join(fpath, 'textures')}")
-                pass
-            if not os.path.isfile(self.current_texture_file_path):
-                log.debug(f"Writing texture {self.current_texture_file_path} (format 0x{self.texFmt:02X})")
-                with open(self.current_texture_file_path, "wb") as file:
-                    self.write_error_encountered = False
-                    if self.texFmt == 2:
-                        if self.texSiz not in (0, 1):
-                            log.error(f"Unknown texture format {self.texFmt} with pixel size {self.texSiz}")
-                        p = 16 if self.texSiz == 0 else 256
-                        file.write(pack("<BBBHHBHHHHBB",
-                            0,  # image comment length
-                            1,  # 1 = paletted
-                            1,  # 1 = indexed uncompressed colors
-                            0,  # index of first palette entry (?)
-                            p,  # amount of entries in palette
-                            32, # bits per pixel
-                            0,  # bottom left X (?)
-                            0,  # bottom left Y (?)
-                            w,  # width
-                            h,  # height
-                            8,  # pixel depth
-                            8   # 8 bits alpha hopefully?
-                        ))
-                        self.writePalette(file, segment, p)
-                    else:
-                        file.write(pack("<BBBHHBHHHHBB",
-                            0, # image comment length
-                            0, # no palette
-                            2, # uncompressed Truecolor (24-32 bits)
-                            0, # irrelevant, no palette
-                            0, # irrelevant, no palette
-                            0, # irrelevant, no palette
-                            0, # bottom left X (?)
-                            0, # bottom left Y (?)
-                            w, # width
-                            h, # height
-                            32,# pixel depth
-                            8  # 8 bits alpha (?)
-                        ))
-                    self.writeImageData(
-                        file,
-                        segment,
-                        replicate_tex_mirror_blender,
-                        self.mirror[1] and replicate_tex_mirror_blender
-                    )
-                if self.write_error_encountered:
-                    oldName = self.current_texture_file_path
-                    oldNameDir, oldNameBase = os.path.split(oldName)
-                    newName = os.path.join(oldNameDir, f"{prefix}fallback_{oldNameBase}")
-                    log.warning(f"Moving failed texture file import from {oldName} to {newName}")
-                    if os.path.isfile(newName):
-                        os.remove(newName)
-                    os.rename(oldName, newName)
-                    self.current_texture_file_path = newName
+
+        try:
+            os.mkdir(os.path.join(fpath, "textures"))
+        except FileExistsError:
+            pass
+        except:
+            log.exception(f"Could not create textures directory {os.path.join(fpath, 'textures')}")
+            pass
+        if not os.path.isfile(self.current_texture_file_path):
+            log.debug(f"Writing texture {self.current_texture_file_path} (format 0x{self.texFmt:02X})")
+            with open(self.current_texture_file_path, "wb") as file:
+                self.write_error_encountered = False
+                if self.texFmt == 2:
+                    if self.texSiz not in (0, 1):
+                        log.error(f"Unknown texture format {self.texFmt} with pixel size {self.texSiz}")
+                    p = 16 if self.texSiz == 0 else 256
+                    file.write(pack("<BBBHHBHHHHBB",
+                        0,  # image comment length
+                        1,  # 1 = paletted
+                        1,  # 1 = indexed uncompressed colors
+                        0,  # index of first palette entry (?)
+                        p,  # amount of entries in palette
+                        32, # bits per pixel
+                        0,  # bottom left X (?)
+                        0,  # bottom left Y (?)
+                        w,  # width
+                        h,  # height
+                        8,  # pixel depth
+                        8   # 8 bits alpha hopefully?
+                    ))
+                    self.writePalette(file, segment, p)
+                else:
+                    file.write(pack("<BBBHHBHHHHBB",
+                        0, # image comment length
+                        0, # no palette
+                        2, # uncompressed Truecolor (24-32 bits)
+                        0, # irrelevant, no palette
+                        0, # irrelevant, no palette
+                        0, # irrelevant, no palette
+                        0, # bottom left X (?)
+                        0, # bottom left Y (?)
+                        w, # width
+                        h, # height
+                        32,# pixel depth
+                        8  # 8 bits alpha (?)
+                    ))
+                self.writeImageData(
+                    file,
+                    segment,
+                    [b and replicate_tex_mirror_blender for b in self.mirror]
+                )
+            if self.write_error_encountered:
+                oldName = self.current_texture_file_path
+                oldNameDir, oldNameBase = os.path.split(oldName)
+                newName = os.path.join(oldNameDir, f"{prefix}fallback_{oldNameBase}")
+                log.warning(f"Moving failed texture file import from {oldName} to {newName}")
+                if os.path.isfile(newName):
+                    os.remove(newName)
+                os.rename(oldName, newName)
+                self.current_texture_file_path = newName
+
         try:
             img = load_image(self.current_texture_file_path)
 
@@ -308,7 +307,7 @@ class Tile:
             a = 255 * (color & 1)
             file.write(pack("BBBB", b, g, r, a))
 
-    def writeImageData(self, file, segment, replicate_tex_mirror_blender, fy=False, df=False):
+    def writeImageData(self, file, segment, flip):
         log = getLogger("Tile.writeImageData")
         if self.texSiz <= 3:
             bpp = (0.5,1,2,4)[self.texSiz] # bytes (not bits) per pixel
@@ -331,9 +330,8 @@ class Tile:
             writeFallbackData = True
         if writeFallbackData:
             size = self.r_dims[0] * self.r_dims[1]
-            for should_mirror in self.mirror:
-                if should_mirror and replicate_tex_mirror_blender:
-                    side *= 2
+            for x in [2 if f else 1 for f in flip]:
+                size *= x
             for _ in range(size):
                 if self.texFmt == 2: # CI (paletted)
                     file.write(pack("B", 0))
@@ -342,7 +340,14 @@ class Tile:
             self.write_error_encountered = True
             return
         seg, offset = splitOffset(self.data)
-        for i in range(self.r_dims[1]) if fy else reversed(range(self.r_dims[1])):
+
+        height_range = range(self.r_dims[1])
+        if flip[1]:
+            height_range = list(height_range) + list(reversed(height_range))
+        else:
+            height_range = reversed(height_range)
+        
+        for i in height_range:
             off = offset + int(i * lineSize)
             line = []
             j = 0
@@ -405,14 +410,12 @@ class Tile:
                 file.write(pack("B" * len(line), *line))
             else:
                 file.write(pack(">" + "L" * len(line), *line))
-            if self.mirror[0] and replicate_tex_mirror_blender:
+            if flip[0]:
                 line.reverse()
                 if self.texFmt == 2: # CI # in (0x40, 0x48, 0x50):
                     file.write(pack("B" * len(line), *line))
                 else:
                     file.write(pack(">" + "L" * len(line), *line))
-        if self.mirror[1] and df == False and replicate_tex_mirror_blender:
-            self.writeImageData(file, segment, not fy, True)
 
 
 class Vertex:
@@ -557,7 +560,8 @@ class Limb:
 
 class Hierarchy:
     def __init__(self):
-        self.name, self.offset = "", 0x00000000
+        self.name = ""
+        self.offset = 0x00000000
         self.limbCount, self.dlistCount = 0x00, 0x00
         self.limb = []
         self.armature = None
@@ -1252,7 +1256,6 @@ class F3DZEX:
                             self.config["enable_tex_mirror_sharp_ocarina_tags"],
                             self.config["enable_tex_clamp_sharp_ocarina_tags"],
                             self.config["enable_tex_clamp_blender"],
-                            self.config["export_textures"],
                             self.config["fpath"],
                             prefix=self.prefix
                         )
@@ -1321,15 +1324,15 @@ class F3DZEX:
             elif data[i] == 0xD7:
                 log.debug("0xD7 G_TEXTURE used, but unimplemented")
                 # FIXME: ?
-#                for _ in range(2):
+#                for tile in self.tile:
 #                    if ((w1 >> 16) & 0xFFFF) < 0xFFFF:
-#                        self.tile[i].scale.x = ((w1 >> 16) & 0xFFFF) * 0.0000152587891
+#                        tile.scale.x = ((w1 >> 16) & 0xFFFF) * 0.0000152587891
 #                    else:
-#                        self.tile[i].scale.x = 1.0
+#                        tile.scale.x = 1.0
 #                    if (w1 & 0xFFFF) < 0xFFFF:
-#                        self.tile[i].scale.y = (w1 & 0xFFFF) * 0.0000152587891
+#                        tile.scale.y = (w1 & 0xFFFF) * 0.0000152587891
 #                    else:
-#                        self.tile[i].scale.y = 1.0
+#                        tile.scale.y = 1.0
                 pass
             # G_POPMTX
             elif data[i] == 0xD8 and self.config["enable_matrices"]:

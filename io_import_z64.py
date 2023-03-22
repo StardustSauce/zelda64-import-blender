@@ -35,7 +35,8 @@ class Tile:
         self.rect = Vector([0, 0, 0, 0])
         self.scale = Vector([1, 1])
         self.ratio = Vector([1, 1])
-        self.clip = Vector([0, 0])
+        self.mirror = [False, False]
+        self.wrap = [False, False]
         self.mask = Vector([0, 0])
         self.shift = Vector([0, 0])
         self.tshift = Vector([0, 0])
@@ -66,20 +67,20 @@ class Tile:
         #Noka here
         suffix = ""
         w = self.r_dims[0]
-        if int(self.clip.x) & 1 != 0:
+        if self.mirror[0]:
             if replicate_tex_mirror_blender:
                 w <<= 1
             if enable_mirror_tags:
                 suffix += "#MirrorX"
         h = self.r_dims[1]
-        if int(self.clip.y) & 1 != 0:
+        if self.mirror[1]:
             if replicate_tex_mirror_blender:
                 h <<= 1
             if enable_mirror_tags:
                 suffix += "#MirrorY"
-        if int(self.clip.x) & 2 != 0 and enable_clamp_tags:
+        if not self.wrap[0] and enable_clamp_tags:
             suffix += "#ClampX"
-        if int(self.clip.y) & 2 != 0 and enable_clamp_tags:
+        if not self.wrap[0] and enable_clamp_tags:
             suffix += "#ClampY"
         self.current_texture_file_path = os.path.join(fpath, "textures", f"{prefix}{fmtName}_{self.data:08X}{f'_pal{self.palette:08X}' if self.texFmt == 2 else ''}{suffix}.tga")
         if export_textures: # FIXME: exportTextures == False breaks the script
@@ -132,7 +133,7 @@ class Tile:
                         file,
                         segment,
                         replicate_tex_mirror_blender,
-                        int(self.clip.y) & 1 != 0 and replicate_tex_mirror_blender
+                        self.mirror[1] and replicate_tex_mirror_blender
                     )
                 if self.write_error_encountered:
                     oldName = self.current_texture_file_path
@@ -168,7 +169,7 @@ class Tile:
                 links.new(separate_node.outputs["Z"], combine_node.inputs["Z"])
                 links.new(combine_node.outputs["Vector"], tex_node.inputs["Vector"])
                 for i, dimension in enumerate(("X", "Y")):
-                    if int(self.clip[i]) & 2 == 0:
+                    if self.wrap[i]:
                         wrap_node = nodes.new(type="ShaderNodeMath")
                         wrap_node.operation = "WRAP"
                         wrap_node.inputs[2].default_value = 0.01 # Min Value
@@ -259,7 +260,7 @@ class Tile:
             else:
                 self.dims[i] = line_size[i]
 
-            if self.clip.x == 1:
+            if self.clip[i] == 1:
                 clamp = tile_size[i]
             else:
                 clamp = self.dims[i]
@@ -268,9 +269,9 @@ class Tile:
                 self.mask[i] = powof(self.dims[i])
                 mask_size[i] = 1 << int(self.mask[i])
         
-            if int(self.clip[i]) & 2 != 0:
+            if not self.wrap[i]:
                 self.r_dims[i] = pow2(clamp)
-            elif int(self.clip[i]) & 1 != 0:
+            elif self.mirror[i]:
                 self.r_dims[i] = pow2(mask_size[i])
             else:
                 self.r_dims[i] = pow2(self.dims[i])
@@ -284,7 +285,7 @@ class Tile:
         
             self.ratio[i] = (self.scale[i] * self.shift[i]) / self.r_dims[i] / 32
         
-            if int(self.clip[i]) & 1 != 0 and replicate_tex_mirror_blender:
+            if self.mirror[i] and replicate_tex_mirror_blender:
                 self.ratio[i] /= 2
             self.offset[i] = self.rect[i]
 
@@ -330,10 +331,9 @@ class Tile:
             writeFallbackData = True
         if writeFallbackData:
             size = self.r_dims[0] * self.r_dims[1]
-            if int(self.clip.x) & 1 != 0 and replicate_tex_mirror_blender:
-                size *= 2
-            if int(self.clip.y) & 1 != 0 and replicate_tex_mirror_blender:
-                size *= 2
+            for should_mirror in self.mirror:
+                if should_mirror and replicate_tex_mirror_blender:
+                    side *= 2
             for _ in range(size):
                 if self.texFmt == 2: # CI (paletted)
                     file.write(pack("B", 0))
@@ -405,13 +405,13 @@ class Tile:
                 file.write(pack("B" * len(line), *line))
             else:
                 file.write(pack(">" + "L" * len(line), *line))
-            if int(self.clip.x) & 1 != 0 and replicate_tex_mirror_blender:
+            if self.mirror[0] and replicate_tex_mirror_blender:
                 line.reverse()
                 if self.texFmt == 2: # CI # in (0x40, 0x48, 0x50):
                     file.write(pack("B" * len(line), *line))
                 else:
                     file.write(pack(">" + "L" * len(line), *line))
-        if int(self.clip.y) & 1 != 0 and df == False and replicate_tex_mirror_blender:
+        if self.mirror[1] and df == False and replicate_tex_mirror_blender:
             self.writeImageData(file, segment, not fy, True)
 
 
@@ -465,6 +465,7 @@ class Mesh:
         
         for vert in self.verts:
             bm.verts.new(vert)
+        bm.verts.ensure_lookup_table()
 
         color_sets = [self.colors[x:x+3] for x in range(0, len(self.colors), 3)]
         uv_sets = [self.uvs[x:x+4] for x in range(0, len(self.uvs), 4)]
@@ -472,8 +473,13 @@ class Mesh:
         uv_layer = bm.loops.layers.uv.new("UVMap")
 
         for face, smooth, color_set, uv_set in zip(self.faces, self.faces_use_smooth, color_sets, uv_sets):
-            verts = [x for x in bm.verts]
-            new_face = bm.faces.new([verts[x] for x in face])
+            verts = [bm.verts[x] for x in face]
+
+            # Don't make a triangle if it's between only two verts
+            if verts[0]==verts[1] or verts[1]==verts[2] or verts[0]==verts[2]:
+                continue
+
+            new_face = bm.faces.new(verts)
             new_face.smooth = smooth
 
             material = uv_set[0]
@@ -1404,8 +1410,9 @@ class F3DZEX:
                 self.tile[self.curTile].texFmt = (w0 >> 21) & 0b111
                 self.tile[self.curTile].texSiz = (w0 >> 19) & 0b11
                 self.tile[self.curTile].lineSize = (w0 >> 9) & 0x1FF
-                self.tile[self.curTile].clip.x = (w1 >> 8) & 0x03
-                self.tile[self.curTile].clip.y = (w1 >> 18) & 0x03
+                clamp_mirror = [(w1 >> 8) & 0x03, (w1 >> 18) & 0x03]
+                self.tile[self.curTile].mirror = [b & 1 != 0 for b in clamp_mirror]
+                self.tile[self.curTile].wrap = [b & 2 == 0 for b in clamp_mirror]
                 self.tile[self.curTile].mask.x = (w1 >> 4) & 0x0F
                 self.tile[self.curTile].mask.y = (w1 >> 14) & 0x0F
                 self.tile[self.curTile].tshift.x = w1 & 0x0F
@@ -1570,36 +1577,32 @@ class F3DZEX:
 
             Trot_offset = AnimationOffset & 0xFFFFFF
             Trot_offset += (frame * (BoneCount * 6 + 8))
-            TRX, TRZ, TRY = unpack_from(">hhh", segment[AniSeg], Trot_offset)
-            TRY = -TRY
-            
-            TRX += unpack_from(">h", segment[S_Seg], BoneOffset)[0]
-            TRZ += unpack_from(">h", segment[S_Seg], BoneOffset + 2)[0]
-            TRY += -unpack_from(">h", segment[S_Seg], BoneOffset + 4)[0]
-            newLocx = TRX / 79
-            newLocz = TRZ / 79
-            newLocy = TRY / 79
-            newLocz -= 25.5
+            translation = Vector((x + y) / 79.0 for x, y in zip(
+                unpack_from(">hhh", segment[AniSeg], Trot_offset),
+                unpack_from(">hhh", segment[S_Seg], BoneOffset)
+            ))
+
+            translation.z -= 25.5 
 
             for bIndx in reversed(range(BoneCount)): # Had to reverse here, cuz didn't find a way to rotate bones on LOCAL space, start rotating from last to first bone on hierarchy GLOBAL.
-                R = Vector(unpack_from(">hhh", segment[AniSeg], rot_offset))
+                r = Vector(unpack_from(">hhh", segment[AniSeg], rot_offset))
                 rot_offset -= 6
 
-                R /= 182.04444444444444444444 # = 0x10000 / 360
+                r /= 182.04444444444444444444 # = 0x10000 / 360
 
-                R = Vector(radians(v) for v in R)
+                r = Vector(radians(v) for v in r)
 
-                log.trace(f"limb: {bIndx} RX {int(R.x)} RZ {int(R.z)} RY {int(R.y)} anim: {currentanim+1} frame: {frame+1}")
+                log.trace(f"limb: {bIndx} RX {int(r.x)} RZ {int(r.z)} RY {int(r.y)} anim: {currentanim+1} frame: {frame+1}")
                 poseBone = armature.pose.bones[f"limb_{bIndx:02}"]
                 poseBone.bone.select = True
-                bpy.ops.transform.rotate(value = -R.x, orient_axis="X")
-                bpy.ops.transform.rotate(value = -R.z, orient_axis="Z")
-                bpy.ops.transform.rotate(value = -R.y, orient_axis="Y")
+                bpy.ops.transform.rotate(value = -r.x, orient_axis="X")
+                bpy.ops.transform.rotate(value = -r.z, orient_axis="Z")
+                bpy.ops.transform.rotate(value = -r.y, orient_axis="Y")
                 poseBone.keyframe_insert(data_path="rotation_quaternion", frame=frame+1)
                 bpy.ops.pose.select_all(action="DESELECT")
 
             bone = armature.bones["limb_00"]
-            bone.location += Vector((newLocx,newLocz,-newLocy)) ## Translations
+            bone.location += Vector((translation.xzy)) ## Translations
             bone.keyframe_insert(data_path="location", frame=frame+1)
 
             for bone in armature.data.bones:

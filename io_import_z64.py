@@ -666,7 +666,7 @@ class F3DZEX:
             pass#self.vbuf.append(Vertex())
         while len(self.vbuf) < 32:
             self.vbuf.append(Vertex())
-        self.curTile = 0
+        self.curTile = self.tile[0]
         self.material = []
         self.hierarchy = []
         self.resetCombiner()
@@ -1392,31 +1392,31 @@ class F3DZEX:
             elif data[i] == 0xF0:
                 self.palSize = ((w1 & 0x00FFF000) >> 13) + 1
             elif data[i] == 0xF2:
-                self.tile[self.curTile].rect.x = (w0 & 0x00FFF000) >> 14
-                self.tile[self.curTile].rect.y = (w0 & 0x00000FFF) >> 2
-                self.tile[self.curTile].rect.z = (w1 & 0x00FFF000) >> 14
-                self.tile[self.curTile].rect.w = (w1 & 0x00000FFF) >> 2
-                self.tile[self.curTile].dims[0] = (self.tile[self.curTile].rect.z - self.tile[self.curTile].rect.x) + 1
-                self.tile[self.curTile].dims[1] = (self.tile[self.curTile].rect.w - self.tile[self.curTile].rect.y) + 1
-                self.tile[self.curTile].texBytes = int(self.tile[self.curTile].dims[0] * self.tile[self.curTile].dims[1]) << 1
-                if (self.tile[self.curTile].texBytes >> 16) == 0xFFFF:
-                    self.tile[self.curTile].texBytes = self.tile[self.curTile].size << 16 >> 15
-                self.tile[self.curTile].calculateSize(self.config["replicate_tex_mirror_blender"])
+                self.curTile.rect.x = (w0 & 0x00FFF000) >> 14
+                self.curTile.rect.y = (w0 & 0x00000FFF) >> 2
+                self.curTile.rect.z = (w1 & 0x00FFF000) >> 14
+                self.curTile.rect.w = (w1 & 0x00000FFF) >> 2
+                self.curTile.dims[0] = (self.curTile.rect.z - self.curTile.rect.x) + 1
+                self.curTile.dims[1] = (self.curTile.rect.w - self.curTile.rect.y) + 1
+                self.curTile.texBytes = int(self.curTile.dims[0] * self.curTile.dims[1]) << 1
+                if (self.curTile.texBytes >> 16) == 0xFFFF:
+                    self.curTile.texBytes = self.curTile.size << 16 >> 15
+                self.curTile.calculateSize(self.config["replicate_tex_mirror_blender"])
             # G_LOADTILE, G_TEXRECT, G_SETZIMG, G_SETCIMG (2d "direct" drawing?)
             elif data[i] in (0xF4, 0xE4, 0xFE, 0xFF):
                 log.debug(f"0x{data[i]:X} {w0:08X} : {w1:08X}")
             # G_SETTILE
             elif data[i] == 0xF5:
-                self.tile[self.curTile].texFmt = (w0 >> 21) & 0b111
-                self.tile[self.curTile].texSiz = (w0 >> 19) & 0b11
-                self.tile[self.curTile].lineSize = (w0 >> 9) & 0x1FF
+                self.curTile.texFmt = (w0 >> 21) & 0b111
+                self.curTile.texSiz = (w0 >> 19) & 0b11
+                self.curTile.lineSize = (w0 >> 9) & 0x1FF
                 clamp_mirror = [(w1 >> 8) & 0x03, (w1 >> 18) & 0x03]
-                self.tile[self.curTile].mirror = [b & 1 != 0 for b in clamp_mirror]
-                self.tile[self.curTile].wrap = [b & 2 == 0 for b in clamp_mirror]
-                self.tile[self.curTile].mask.x = (w1 >> 4) & 0x0F
-                self.tile[self.curTile].mask.y = (w1 >> 14) & 0x0F
-                self.tile[self.curTile].tshift.x = w1 & 0x0F
-                self.tile[self.curTile].tshift.y = (w1 >> 10) & 0x0F
+                self.curTile.mirror = [b & 1 != 0 for b in clamp_mirror]
+                self.curTile.wrap = [b & 2 == 0 for b in clamp_mirror]
+                self.curTile.mask.x = (w1 >> 4) & 0x0F
+                self.curTile.mask.y = (w1 >> 14) & 0x0F
+                self.curTile.tshift.x = w1 & 0x0F
+                self.curTile.tshift.y = (w1 >> 10) & 0x0F
             elif data[i] == 0xFA:
                 self.primColor = Vector([((w1 >> (8*(3-i))) & 0xFF) / 255 for i in range(4)])
                 log.debug(f"new primColor -> {self.primColor!r}")
@@ -1430,9 +1430,9 @@ class F3DZEX:
             elif data[i] == 0xFD:
                 try:
                     if data[i - 8] == 0xF2:
-                        self.curTile = 1
+                        self.curTile = self.tile[1]
                     else:
-                        self.curTile = 0
+                        self.curTile = self.tile[0]
                 except:
                     log.exception(f"Failed to switch texel? at 0x{i:X}")
                     pass
@@ -1440,7 +1440,7 @@ class F3DZEX:
                     if data[i + 8] == 0xE8:
                         self.tile[0].palette = w1
                     else:
-                        self.tile[self.curTile].data = w1
+                        self.curTile.data = w1
                 except:
                     log.exception(f"Failed to switch texel data? at 0x{i:X}")
                     pass
@@ -1716,5 +1716,3 @@ class F3DZEX:
                 bone.select = True
             bpy.ops.pose.transforms_clear()
             bpy.ops.pose.select_all(action="DESELECT")
-        
-        print(len(self.tile))
